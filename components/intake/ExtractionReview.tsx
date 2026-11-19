@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ArrowLeft, Braces, ChevronDown, ExternalLink, Plus, Sparkles, X } from "lucide-react";
-import { formatShort } from "@/lib/dates";
+import { formatShort, formatTime } from "@/lib/dates";
 import { CATEGORIES, type DocketItem, type Extraction } from "@/lib/types";
 import { cn, uid } from "@/lib/utils";
 import { ActionCard } from "../docket/ActionCard";
@@ -10,6 +10,8 @@ import { CATEGORY_STYLE } from "../ui";
 
 interface Props {
   draft: Extraction;
+  /** Other events found in the same message. They are saved with the one being edited. */
+  also?: Extraction[];
   onChange: (d: Extraction) => void;
   now: Date;
   onConfirm: () => void;
@@ -17,7 +19,7 @@ interface Props {
 }
 
 /** Human-in-the-loop step: show the structured result, let the parent tweak it, then save. */
-export function ExtractionReview({ draft, onChange, now, onConfirm, onBack }: Props) {
+export function ExtractionReview({ draft, also = [], onChange, now, onConfirm, onBack }: Props) {
   const [showJson, setShowJson] = useState(false);
   const [newTask, setNewTask] = useState("");
   const preview: DocketItem = { ...draft, id: "preview", archived: false, createdAt: "" };
@@ -54,7 +56,11 @@ export function ExtractionReview({ draft, onChange, now, onConfirm, onBack }: Pr
           Extracted · {fieldsFound} field{fieldsFound === 1 ? "" : "s"} · {draft.tasks.length} action{draft.tasks.length === 1 ? "" : "s"}
         </p>
         <h1 className="mt-1.5 text-[24px] font-semibold tracking-[-0.025em] text-ink">Here&apos;s what I found</h1>
-        <p className="mt-1 text-[14px] text-stone-500">Check it over, adjust anything, then add it to your docket.</p>
+        <p className="mt-1 text-[14px] text-stone-500">
+          {also.length
+            ? `Check it over, then add these ${also.length + 1} items to your docket.`
+            : "Check it over, adjust anything, then add it to your docket."}
+        </p>
       </header>
 
       <ActionCard item={preview} now={now} preview />
@@ -148,6 +154,21 @@ export function ExtractionReview({ draft, onChange, now, onConfirm, onBack }: Pr
         </div>
       </section>
 
+      {also.length > 0 && (
+        <section className="space-y-2 rounded-2xl bg-white p-4 shadow-card ring-1 ring-stone-900/[0.04]">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-400">Also in this message</p>
+          {also.map((item) => (
+            <div key={item.title + (item.eventDate ?? "")} className="rounded-xl bg-stone-50 px-3 py-2.5">
+              <p className="text-[14px] font-medium text-ink">{item.title}</p>
+              <p className="mt-0.5 text-[12.5px] text-stone-500">
+                {[item.eventDate ? formatShort(item.eventDate) : null, item.eventTime ? formatTime(item.eventTime) : null].filter(Boolean).join(" · ") || "No date"}
+                {item.tasks.length ? ` · ${item.tasks.map((t) => t.text).join(", ")}` : ""}
+              </p>
+            </div>
+          ))}
+        </section>
+      )}
+
       <section className="overflow-hidden rounded-2xl bg-white shadow-card ring-1 ring-stone-900/[0.04]">
         <button
           type="button"
@@ -178,7 +199,7 @@ export function ExtractionReview({ draft, onChange, now, onConfirm, onBack }: Pr
           onClick={onConfirm}
           className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-ink py-3.5 text-[15px] font-medium text-white shadow-float transition active:scale-[0.99]"
         >
-          Add to Docket
+          {also.length ? `Add ${also.length + 1} items` : "Add to Docket"}
         </button>
       </div>
     </div>

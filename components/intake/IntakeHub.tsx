@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, ImagePlus, Loader2, Mail, MessageCircle, ScanText, Sparkles, X } from "lucide-react";
 import type { Extraction } from "@/lib/types";
 import { recognizeScreenshot } from "@/lib/ocr";
-import { extract } from "@/lib/parser";
+import { extractAll } from "@/lib/parser";
 import { countryOf, useProfile } from "@/lib/profile";
 import { chatTranscripts, emailSamples } from "@/lib/samples";
 import { useDocket } from "@/lib/store";
@@ -45,7 +45,7 @@ export function IntakeHub({
   const [ocrUnclear, setOcrUnclear] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [phase, setPhase] = useState<Phase>("input");
-  const [draft, setDraft] = useState<Extraction | null>(null);
+  const [drafts, setDrafts] = useState<Extraction[] | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const ocrRun = useRef(0);
 
@@ -109,23 +109,25 @@ export function IntakeHub({
   }
 
   function process() {
-    setDraft(extract(input, tab === "email" ? "email" : "whatsapp", new Date(), country));
+    setDrafts(extractAll(input, tab === "email" ? "email" : "whatsapp", new Date(), country));
     setPhase("processing");
   }
 
   if (phase === "processing") return <ProcessingView label={tab === "screenshot" ? "Reading your screenshot…" : "Reading your email…"} onDone={() => setPhase("review")} />;
 
-  if (phase === "review" && draft) {
+  if (phase === "review" && drafts?.[0]) {
+    const [draft, ...also] = drafts;
     return (
       <ExtractionReview
         draft={draft}
-        onChange={setDraft}
+        also={also}
+        onChange={(next) => setDrafts([next, ...also])}
         now={now}
         onBack={() => setPhase("input")}
         onConfirm={() => {
-          add(draft);
-          onAdded(`Added “${draft.title}”`);
-          setDraft(null);
+          for (const item of drafts) add(item);
+          onAdded(drafts.length === 1 ? `Added “${drafts[0].title}”` : `Added ${drafts.length} items`);
+          setDrafts(null);
           setEmailText("");
           clearShot();
           setPhase("input");

@@ -339,7 +339,7 @@ function findTitle(body: string, subject: string | null, audience: string | null
 /* ------------------------------------------------------------------ */
 
 const KIT_ITEMS = [
-  "swimming costume", "swimming cap", "grip socks", "shin pads", "football boots", "gum shield", "pe kit", "packed lunch",
+  "swimming costume", "swimming cap", "grip socks", "shin pads", "football boots", "gum shield", "pe kit", "packed lunch", "sack lunch",
   "water bottle", "waterproof coat", "sun cream", "sun hat", "goggles", "towel", "swimsuit", "wellies", "trainers",
   "plimsolls", "gloves", "raincoat", "boots", "hat",
 ].sort((a, b) => b.length - a.length);
@@ -356,7 +356,7 @@ function mentionsKit(text: string): boolean {
 }
 
 function kitTask(item: string, adj?: string): string {
-  if (item === "packed lunch") return "Make a packed lunch";
+  if (item === "packed lunch" || item === "sack lunch") return item === "sack lunch" ? "Pack a sack lunch" : "Make a packed lunch";
   if (item === "sun cream") return "Apply sun cream";
   if (item === "pe kit") return "Pack PE kit";
   return `Pack ${adj ? `${adj.toLowerCase()} ` : ""}${item}`;
@@ -396,6 +396,7 @@ function findTasks(body: string, now: Date, country: Country): DraftTask[] {
       const item = need[1].replace(/\s+/g, " ").trim();
       if (item && item.split(/\s+/).length <= 12) add(`Bring ${item}`, due);
     }
+    if (/\bdrop\s+(?:off\s+)?a\s+cake\b/i.test(s)) add("Drop a cake", due);
     const donation = s.match(/\b([A-Za-z]+)\s+donations?\s+welcome\b/);
     if (donation) {
       const place = s.match(/\b(?:drop|leave)(?:\s+[a-z]+){0,4}?\s+at\s+(?:the\s+)?([A-Za-z]+)/i);
@@ -559,9 +560,36 @@ function attachLinks(drafts: DraftTask[], ctx: { raw: string; body: string; titl
 /* Public API                                                           */
 /* ------------------------------------------------------------------ */
 
-export function extract(raw: string, channel: Channel, now: Date = new Date(), country: Country = "UK"): Extraction {
-  const subject = header(raw, "subject");
-  const source = findSource(raw, channel);
+const TRIP_RE = /\b(field trip|class trip|school trip|trip to)\b/i;
+
+/** A sentence that is its own event, not a follow-up action for the one above it. */
+function looksLikeEvent(text: string, now: Date, country: Country): boolean {
+  return /early dismissal/i.test(text) || TRIP_RE.test(text) || EVENT_PHRASES.some((p) => text.toLowerCase().includes(p)) || findDates(text, now, country).length > 0;
+}
+
+function startsOwnNotice(sentence: string, current: string, now: Date, country: Country): boolean {
+  if (!looksLikeEvent(current, now, country)) return false;
+  if (/early dismissal/i.test(sentence)) return true;
+  if (TRIP_RE.test(sentence) && !TRIP_RE.test(current)) return true;
+  // "Please send £2 for the cake sale" belongs to the event already being read.
+  if (/\b(please|could|send|bring|drop|pack|need|remember|don't forget|do not forget)\b/i.test(sentence)) return false;
+  const phrase = EVENT_PHRASES.find((p) => sentence.toLowerCase().includes(p));
+  return !!phrase && !current.toLowerCase().includes(phrase) && findDates(sentence, now, country).length > 0;
+}
+
+function eventNotices(body: string, now: Date, country: Country): string[] {
+  const sents = sentences(body).filter((s) => !/^(hi|hello|dear|thanks|thank you|many thanks|kind regards)\b/i.test(s));
+  const groups: string[][] = [];
+  for (const s of sents) {
+    const current = groups[groups.length - 1];
+    if (!current || startsOwnNotice(s, current.join(" "), now, country)) groups.push([s]);
+    else current.push(s);
+  }
+  const notices = groups.map((g) => g.join(" ")).filter((g) => g.length > 1);
+  return notices.length ? notices : [body];
+}
+
+function preparedBody(raw: string, channel: Channel): string {
   let body = stripHeaders(raw);
   body = body
     .split("\n")
@@ -569,40 +597,71 @@ export function extract(raw: string, channel: Channel, now: Date = new Date(), c
     .join("\n")
     .trim();
   if (channel === "whatsapp") body = normaliseChat(body);
+  return body;
+}
 
-  const category = classify(raw);
-  const audience = findAudience(raw);
+function buildDismissal(chunk: string, ctx: { raw: string; source: string; channel: Channel; country: Country; now: Date }): Extraction {
+  const time = findTimes(chunk)[0]?.value ?? null;
+  const eventDate = findDates(chunk, ctx.now, ctx.country)[0]?.iso ?? null;
+  const title = time ? `Early dismissal – pick up ${formatTime(time)}` : "Early dismissal";
+  const tasks = attachLinks([{ text: "Arrange early pick-up", due: eventDate }], { raw: ctx.raw, body: chunk, title, channel: ctx.channel, country: ctx.country });
+  return {
+    category: "School Admin",
+    title,
+    source: ctx.source,
+    channel: ctx.channel,
+    audience: findAudience(chunk),
+    eventDate,
+    eventTime: time,
+    location: null,
+    deadline: eventDate,
+    tasks,
+    summary: summarise(chunk),
+    confidence: 0.9,
+    raw: ctx.raw.trim().slice(0, 8000),
+  };
+}
 
-  const dates = findDates(body, now, country);
-  const deadline = dates.find((d) => isDeadlineContext(body, d.index))?.iso ?? null;
-  const eventDate = dates.find((d) => !isDeadlineContext(body, d.index))?.iso ?? null;
+function extractChunk(chunk: string, ctx: { raw: string; source: string; channel: Channel; country: Country; now: Date; subject: string | null; inheritAudience: boolean }): Extraction {
+  if (/early dismissal/i.test(chunk)) return buildDismissal(chunk, ctx);
+  const { raw, source, channel, country, now } = ctx;
+  const categoryGuess = classify(chunk);
+  const category = categoryGuess === "General Notice" ? classify(raw) : categoryGuess;
+  const audience = findAudience(chunk) ?? (ctx.inheritAudience ? findAudience(raw) : null);
 
-  const span = findTimeSpan(body);
+  const dates = findDates(chunk, now, country);
+  const eventDate = dates.find((d) => !isDeadlineContext(chunk, d.index))?.iso ?? null;
+
+  const span = findTimeSpan(chunk);
   const eventTime =
     span?.start ??
-    findTimes(body).find(
+    findTimes(chunk).find(
       (t) =>
-        !isDeadlineContext(body, t.index) &&
-        !/\b(collect|pick[- ]?up|back (?:at|by)|return)\b[^.\n]{0,25}$/i.test(body.slice(Math.max(0, t.index - 30), t.index)),
+        !isDeadlineContext(chunk, t.index) &&
+        !/\b(collect|pick[- ]?up|back (?:at|by)|return|early dismissal)\b[^.\n]{0,40}$/i.test(chunk.slice(Math.max(0, t.index - 40), t.index)),
     )?.value ??
     null;
   const eventEndTime = span?.end ?? null;
 
-  let title = findTitle(body, subject, audience);
-  let tasks = findTasks(body, now, country);
+  let title = findTitle(chunk, noticesUseSubject(chunk, ctx.subject) ? ctx.subject : null, audience);
+  let tasks = findTasks(chunk, now, country);
+  if (TRIP_RE.test(chunk) && eventDate) {
+    tasks = tasks.map((t) => (t.due || !/lunch/i.test(t.text) ? t : { ...t, due: eventDate }));
+  }
 
   const hasConsent = tasks.some((t) => /consent/i.test(t.text));
   if (hasConsent && !/consent|permission|slip|form/i.test(title) && title.length <= 24) title = `${title} permission slip`;
 
   const host = title.match(/^([A-Z][a-z]+)'s .*Birthday/);
   if (host) tasks = tasks.map((t) => (t.text === "RSVP" ? { ...t, text: `RSVP to ${host[1]}'s parents` } : t));
-  // Parties need a present unless the invite says otherwise.
-  if (category === "Birthday Party" && !tasks.some((t) => /present|gift/i.test(t.text)) && !/\bno (presents|gifts)\b/i.test(body)) {
+  if (category === "Birthday Party" && !tasks.some((t) => /present|gift/i.test(t.text)) && !/\bno (presents|gifts)\b/i.test(chunk)) {
     tasks.push({ text: "Buy a present", due: null });
   }
   if (!tasks.length) tasks = [{ text: eventDate ? "Add to the family calendar" : "Read & acknowledge", due: null }];
 
-  const location = findLocation(body);
+  const actionDues = tasks.map((t) => t.due).filter((d): d is string => !!d).sort();
+  const deadline = actionDues[0] ?? dates.find((d) => isDeadlineContext(chunk, d.index))?.iso ?? null;
+  const location = findLocation(chunk);
   const found = [!/Forwarded email|Parent group chat/.test(source), eventDate, eventTime, location, deadline, audience].filter(Boolean).length;
   const confidence = Math.min(0.98, 0.74 + found * 0.04);
 
@@ -617,9 +676,29 @@ export function extract(raw: string, channel: Channel, now: Date = new Date(), c
     ...(eventEndTime ? { eventEndTime } : {}),
     location,
     deadline,
-    tasks: attachLinks(tasks, { raw, body, title, channel, country }),
-    summary: summarise(body),
+    tasks: attachLinks(tasks, { raw, body: chunk, title, channel, country }),
+    summary: summarise(chunk),
     confidence: Math.round(confidence * 100) / 100,
     raw: raw.trim().slice(0, 8000),
   };
+}
+
+function noticesUseSubject(chunk: string, subject: string | null): boolean {
+  if (!subject) return false;
+  const words = subject.toLowerCase().split(/\W+/).filter((w) => w.length > 3);
+  return words.some((w) => chunk.toLowerCase().includes(w));
+}
+
+/** One email can hold several events. Each becomes its own item, with its own time. */
+export function extractAll(raw: string, channel: Channel, now: Date = new Date(), country: Country = "UK"): Extraction[] {
+  const subject = header(raw, "subject");
+  const source = findSource(raw, channel);
+  const body = preparedBody(raw, channel);
+  const notices = eventNotices(body, now, country);
+  const ctx = { raw, source, channel, country, now, subject, inheritAudience: notices.length === 1 };
+  return notices.map((chunk) => extractChunk(chunk, ctx));
+}
+
+export function extract(raw: string, channel: Channel, now: Date = new Date(), country: Country = "UK"): Extraction {
+  return extractAll(raw, channel, now, country)[0];
 }

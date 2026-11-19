@@ -3,7 +3,8 @@ import test from "node:test";
 import { buildDispatch } from "./briefing";
 import { formatDayMonth, formatShort, fromISO } from "./dates";
 import { eventToExtraction, type CalendarEvent } from "./ics";
-import { extract } from "./parser";
+import { extract, extractAll } from "./parser";
+import { actionsDueWithin24h, sectionFor } from "./placement";
 import { chatTranscripts, emailSamples } from "./samples";
 import { holidayOn, isBankHoliday } from "./terms";
 import type { DocketItem } from "./types";
@@ -169,6 +170,61 @@ test("US federal holidays are likely no-school days, and England holidays stay o
   assert.equal(holidayOn("2026-11-26", "UK"), undefined);
   assert.match(holidayOn("2026-12-21", "UK")?.label ?? "", /Christmas holidays/);
   assert.equal(holidayOn("2026-10-26", "US"), undefined);
+});
+
+const LINCOLN_EMAIL = `From: Lincoln Elementary <office@lincoln.example>
+Subject: This week at Lincoln Elementary
+
+Hi families,
+
+Our Christmas fair is Saturday 5 Dec in the hall. Please drop a cake at the office tomorrow.
+
+There is an early dismissal at 12:30pm on Wednesday 11/25.
+
+The 2nd grade field trip to the Science Museum is on Thursday 12/3. Please pack a sack lunch. Please pack a packed lunch if you prefer.
+`;
+
+test("Lincoln Elementary files the fair under tomorrow, splits early dismissal, and packs lunch for the trip", () => {
+  const items = extractAll(LINCOLN_EMAIL, "email", NOW, "US");
+  const fair = items.find((item) => item.title === "Christmas Fair");
+  const dismissal = items.find((item) => item.title.startsWith("Early dismissal"));
+  const trip = items.find((item) => /Science Museum/.test(item.title));
+
+  assert.ok(fair);
+  assert.ok(dismissal);
+  assert.ok(trip);
+  assert.equal(items.length, 3);
+
+  assert.equal(fair.eventDate, "2026-12-05");
+  assert.equal(fromISO(fair.eventDate!).getDay(), 6);
+  assert.equal(fair.eventTime, null);
+  const cake = fair.tasks.find((task) => task.text === "Drop a cake");
+  assert.ok(cake);
+  assert.equal(cake.due, "2026-11-20");
+  assert.equal(fromISO(cake.due!).getDay(), 5);
+  assert.equal(sectionFor(fair, NOW), "Tomorrow");
+  assert.equal(fair.tasks.some((task) => /lunch/i.test(task.text)), false);
+
+  assert.equal(dismissal.title, "Early dismissal – pick up 12:30pm");
+  assert.equal(dismissal.eventDate, "2026-11-25");
+  assert.equal(fromISO(dismissal.eventDate!).getDay(), 3);
+  assert.equal(dismissal.eventTime, "12:30");
+  assert.deepEqual(
+    dismissal.tasks.map((task) => task.text),
+    ["Arrange early pick-up"],
+  );
+  assert.notEqual(trip.eventTime, "12:30");
+
+  assert.equal(trip.eventDate, "2026-12-03");
+  assert.equal(trip.audience, "2nd grade");
+  assert.equal(trip.tasks.find((task) => task.text === "Pack a sack lunch")?.due, "2026-12-03");
+  assert.equal(trip.tasks.find((task) => task.text === "Make a packed lunch")?.due, "2026-12-03");
+
+  const open = items.map((item) => ({ ...item, archived: false }));
+  assert.equal(actionsDueWithin24h(open, NOW), 1);
+  cake.done = true;
+  assert.equal(sectionFor(fair, NOW), "Later");
+  assert.equal(actionsDueWithin24h(open, NOW), 0);
 });
 
 test("a club email stays a sports club and a school letter stays school admin", () => {

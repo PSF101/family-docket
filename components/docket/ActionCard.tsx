@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Archive, ArchiveRestore, CalendarDays, Check, ChevronDown, Clock, ExternalLink, Gift, Mail, MapPin, Trash2 } from "lucide-react";
 import type { DocketItem, Task, TaskLink } from "@/lib/types";
 import { formatShort, formatTime, relativeDay, urgencyOf } from "@/lib/dates";
+import { earliestOpenDeadline } from "@/lib/placement";
 import { giftSearchUrl } from "@/lib/parser";
 import { cn } from "@/lib/utils";
 import { CategoryTag, ChannelIcon, URGENCY_STRIPE, UrgencyBadge } from "../ui";
@@ -27,7 +28,8 @@ export function ActionCard({ item, now, onToggle, onArchive, onRestore, onDelete
   const total = item.tasks.length;
   const done = item.tasks.filter((t) => t.done).length;
   const complete = total > 0 && done === total;
-  const urgency = complete || item.archived ? null : urgencyOf(item.deadline, now);
+  const due = earliestOpenDeadline(item) ?? (item.tasks.some((t) => t.due) ? null : item.deadline);
+  const urgency = complete || item.archived ? null : urgencyOf(due, now);
   const rel = item.eventDate ? relativeDay(item.eventDate, now) : null;
   const short = item.eventDate ? formatShort(item.eventDate) : null;
 

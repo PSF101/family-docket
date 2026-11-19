@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Archive, CalendarDays, Inbox, ListChecks, Plus } from "lucide-react";
 import type { DocketItem } from "@/lib/types";
 import { daysUntil, formatShort, relativeDay, timeGreeting } from "@/lib/dates";
+import { actionsDueWithin24h, placementDate, sectionFor } from "@/lib/placement";
 import { findGaps } from "@/lib/childcare";
 import { useProfile } from "@/lib/profile";
 import { useDocket } from "@/lib/store";
@@ -17,23 +18,15 @@ type Filter = (typeof FILTERS)[number];
 
 const hasOpen = (i: DocketItem) => i.tasks.some((t) => !t.done);
 
-/** The date that matters most for sorting: an open deadline, otherwise the event. */
+/** Soonest open action, then the item deadline, then the event. */
 function keyDate(i: DocketItem): string | null {
-  const candidates = [hasOpen(i) ? i.deadline : null, i.eventDate].filter(Boolean) as string[];
-  return candidates.sort()[0] ?? null;
+  return placementDate(i);
 }
 
 const BUCKET_ORDER = ["Overdue", "Today", "Tomorrow", "This week", "Later", "Earlier", "No date"];
 
 function bucketFor(i: DocketItem, now: Date): string {
-  const k = keyDate(i);
-  if (!k) return "No date";
-  const n = daysUntil(k, now);
-  if (n < 0) return hasOpen(i) ? "Overdue" : "Earlier";
-  if (n === 0) return "Today";
-  if (n === 1) return "Tomorrow";
-  if (n <= 7) return "This week";
-  return "Later";
+  return sectionFor(i, now);
 }
 
 interface Group {
@@ -49,7 +42,7 @@ export function Dashboard({ now, onAdd }: { now: Date; onAdd: () => void }) {
 
   const active = items.filter((i) => !i.archived);
   const openTasks = active.reduce((n, i) => n + i.tasks.filter((t) => !t.done).length, 0);
-  const dueSoon = active.filter((i) => i.deadline && hasOpen(i) && daysUntil(i.deadline, now) <= 1).length;
+  const dueSoon = actionsDueWithin24h(active, now);
   const eventsThisWeek = active.filter((i) => i.eventDate && daysUntil(i.eventDate, now) >= 0 && daysUntil(i.eventDate, now) <= 7).length;
 
   const counts: Record<Filter, number> = {
