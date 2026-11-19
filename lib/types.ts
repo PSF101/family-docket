@@ -16,6 +16,8 @@ export interface Task {
   id: string;
   text: string;
   done: boolean;
+  /** ISO date this action should be done by, when the message gives it one. */
+  due?: string | null;
   /** One-tap shortcut to get the task done (form link, reply email, shop search…) */
   link?: TaskLink;
 }

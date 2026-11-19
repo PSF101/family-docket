@@ -4,12 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { CalendarPlus, CheckCircle2, Download, Eraser, Layers, ListChecks, Newspaper, Plus, RotateCcw, Settings2, ShieldCheck } from "lucide-react";
 import { exportICS } from "@/lib/ics";
 import { formatLong } from "@/lib/dates";
-import { initials, useProfile } from "@/lib/profile";
+import { initials, newCarer, newChild, PRIVACY_POLICY_VERSION, type Profile, useProfile } from "@/lib/profile";
 import { useDocket } from "@/lib/store";
 import { cn, downloadFile } from "@/lib/utils";
 import { Dashboard } from "./docket/Dashboard";
 import { IntakeHub, type IntakeTab } from "./intake/IntakeHub";
 import { Briefing } from "./briefing/Briefing";
+import { Landing } from "./landing/Landing";
 import { Onboarding, type FirstStep } from "./onboarding/Onboarding";
 import { Settings } from "./settings/Settings";
 
@@ -17,9 +18,10 @@ type View = "docket" | "intake" | "briefing" | "settings";
 
 export function AppShell() {
   const { ready: docketReady, items, reset, clearAll } = useDocket();
-  const { profile, ready: profileReady } = useProfile();
+  const { profile, ready: profileReady, save } = useProfile();
   const ready = docketReady && profileReady;
   const [view, setView] = useState<View>("docket");
+  const [signingUp, setSigningUp] = useState(false);
   const [intake, setIntake] = useState<{ tab: IntakeTab; key: number }>({ tab: "email", key: 0 });
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -99,6 +101,23 @@ export function AppShell() {
     },
   };
 
+  function startDemo() {
+    const agreedAt = new Date().toISOString();
+    const demo: Profile = {
+      name: "Alex Morgan",
+      email: "alex@example.co.uk",
+      createdAt: agreedAt,
+      consent: { privacyPolicy: true, policyVersion: PRIVACY_POLICY_VERSION, agreedAt, productEmails: false },
+      children: [{ ...newChild("Sam"), school: "St. Mary's Primary", yearGroup: "Year 4" }],
+      carers: [newCarer("Alex"), newCarer("Jordan")],
+      coveredGaps: [],
+    };
+    save(demo);
+    reset();
+    setView("docket");
+    setToast("Here's a demo family to explore");
+  }
+
   function finishOnboarding(start: FirstStep) {
     if (start === "demo") reset();
     else clearAll();
@@ -112,7 +131,7 @@ export function AppShell() {
   if (ready && !profile) {
     return (
       <>
-        <Onboarding onFinish={finishOnboarding} />
+        {signingUp ? <Onboarding onFinish={finishOnboarding} /> : <Landing onTry={() => setSigningUp(true)} onDemo={startDemo} />}
         <Toast message={toast} />
       </>
     );
@@ -126,7 +145,10 @@ export function AppShell() {
           <Layers className="h-4 w-4" />
         </div>
         <div className="leading-tight">
-          <p className="text-[14.5px] font-semibold tracking-[-0.01em] text-ink">FamilyDocket</p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-[14.5px] font-semibold tracking-[-0.01em] text-ink">FamilyDocket</p>
+            <span className="rounded-full bg-accent-100 px-1.5 py-px text-[9px] font-semibold uppercase tracking-[0.12em] text-accent-700">Beta</span>
+          </div>
           <p className="text-[11.5px] text-stone-400">{now ? formatLong(now) : " "}</p>
         </div>
         <div ref={menuRef} className="relative ml-auto">

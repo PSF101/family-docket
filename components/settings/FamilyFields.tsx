@@ -64,7 +64,7 @@ export function CarerEditor({ carer, onChange, label, withAway = false }: { care
   return (
     <div className="rounded-2xl bg-stone-50 p-3 ring-1 ring-stone-900/[0.04]">
       <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-400">{label}</p>
-      <input value={carer.name} onChange={(e) => onChange({ ...carer, name: e.target.value })} placeholder="First name" aria-label={`${label} name`} className={inputCls} />
+      <input value={carer.name} onChange={(e) => onChange({ ...carer, name: e.target.value })} placeholder="First name" aria-label={label === "You" ? "Your name" : `${label} name`} className={inputCls} />
       <p className="mb-1.5 mt-3 text-[12.5px] text-stone-500">Usually working on</p>
       <WorkDayPicker value={carer.workDays} onChange={(workDays) => onChange({ ...carer, workDays })} />
       {withAway && <AwayEditor value={carer.away} onChange={(away) => onChange({ ...carer, away })} />}

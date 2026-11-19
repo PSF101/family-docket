@@ -179,10 +179,7 @@ Oakwood PTA x`,
   ];
 }
 
-/**
- * What the "OCR" step returns for a screenshot. In production a vision model reads the image;
- * here we hand back one of these transcripts.
- */
+/** Sample chats. These are inserted only when a sample button is clicked, never for an uploaded image. */
 export function chatTranscripts(now: Date): Sample[] {
   const party = addDays(nextWeekday(now, 6), 14);
   return [

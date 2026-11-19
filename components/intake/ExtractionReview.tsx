@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ArrowLeft, Braces, ChevronDown, ExternalLink, Plus, Sparkles, X } from "lucide-react";
+import { formatShort } from "@/lib/dates";
 import { CATEGORIES, type DocketItem, type Extraction } from "@/lib/types";
 import { cn, uid } from "@/lib/utils";
 import { ActionCard } from "../docket/ActionCard";
@@ -31,9 +32,10 @@ export function ExtractionReview({ draft, onChange, now, onConfirm, onBack }: Pr
     audience: draft.audience,
     event: { date: draft.eventDate, time: draft.eventTime, location: draft.location },
     deadline: draft.deadline,
-    action_items: draft.tasks.map((t) => (t.link ? { text: t.text, link: t.link.url } : t.text)),
+    action_items: draft.tasks.map((t) =>
+      t.link || t.due ? { text: t.text, ...(t.due ? { due: t.due } : {}), ...(t.link ? { link: t.link.url } : {}) } : t.text,
+    ),
     summary: draft.summary,
-    confidence: draft.confidence,
   };
 
   const setTaskText = (id: string, text: string) => onChange({ ...draft, tasks: draft.tasks.map((t) => (t.id === id ? { ...t, text } : t)) });
@@ -49,7 +51,7 @@ export function ExtractionReview({ draft, onChange, now, onConfirm, onBack }: Pr
       <header className="px-1">
         <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-accent-700">
           <Sparkles className="h-3.5 w-3.5" />
-          Extracted · {Math.round(draft.confidence * 100)}% confidence · {fieldsFound} fields · {draft.tasks.length} actions
+          Extracted · {fieldsFound} fields · {draft.tasks.length} actions
         </p>
         <h1 className="mt-1.5 text-[24px] font-semibold tracking-[-0.025em] text-ink">Here&apos;s what I found</h1>
         <p className="mt-1 text-[14px] text-stone-500">Check it over, adjust anything, then add it to your docket.</p>
@@ -95,11 +97,14 @@ export function ExtractionReview({ draft, onChange, now, onConfirm, onBack }: Pr
           <ul className="space-y-1.5">
             {draft.tasks.map((t) => (
               <li key={t.id} className="flex items-center gap-2">
-                <input
-                  value={t.text}
-                  onChange={(e) => setTaskText(t.id, e.target.value)}
-                  className="min-w-0 flex-1 rounded-lg bg-stone-50 px-3 py-1.5 text-[13.5px] text-ink outline-none ring-1 ring-stone-200 focus:ring-2 focus:ring-accent-500"
-                />
+                <div className="min-w-0 flex-1">
+                  <input
+                    value={t.text}
+                    onChange={(e) => setTaskText(t.id, e.target.value)}
+                    className="w-full rounded-lg bg-stone-50 px-3 py-1.5 text-[13.5px] text-ink outline-none ring-1 ring-stone-200 focus:ring-2 focus:ring-accent-500"
+                  />
+                  {t.due && <p className="mt-1 px-1 text-[11.5px] text-stone-400">Due {formatShort(t.due)}</p>}
+                </div>
                 {t.link && (
                   <a
                     href={t.link.url}

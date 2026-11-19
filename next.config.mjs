@@ -5,6 +5,9 @@ const basePath = pages && repo && !repo.endsWith(".github.io") ? `/${repo}` : ""
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  env: {
+    NEXT_PUBLIC_BASE_PATH: basePath,
+  },
   ...(pages
     ? {
         output: "export",

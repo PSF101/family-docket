@@ -111,7 +111,7 @@ export function Briefing({ now }: { now: Date }) {
         <div className="border-t border-stone-100 bg-stone-50/70 px-5 py-4">
           <p className="text-[13px] leading-relaxed text-stone-600">{dispatch.footer}</p>
           <p className="mt-1.5 text-[11.5px] text-stone-400">
-            Compiled {now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} from {sourceCount} items · auto-sends 7:00 & 19:00
+            Compiled {now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} from {sourceCount} item{sourceCount === 1 ? "" : "s"}
           </p>
         </div>
       </article>

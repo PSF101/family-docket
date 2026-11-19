@@ -28,6 +28,29 @@ function stripHeaders(text: string): string {
     .trim();
 }
 
+/** Chat OCR: drop sender labels and clock times, and join lines the screenshot wrapped mid-sentence. */
+function normaliseChat(text: string): string {
+  const lines = text
+    .split(/\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^\d{1,2}:\d{2}$/.test(line))
+    .filter((line) => !/^[^:\n]{1,48}:$/.test(line))
+    .map((line) => line.replace(/^[^:\n]{1,40}:\s+/, ""))
+    .filter(Boolean);
+
+  const merged: string[] = [];
+  for (const line of lines) {
+    const prev = merged[merged.length - 1];
+    const continues =
+      !!prev &&
+      (/^[a-z£0-9(]/.test(line) || (/^(?:sun|mon|tues|wednes|thurs|fri|satur)day\b/i.test(line) && !/[.!?]"?$/.test(prev)));
+    if (continues) merged[merged.length - 1] = `${prev} ${line}`;
+    else merged.push(line);
+  }
+  return merged.join("\n").trim();
+}
+
 function sentences(text: string): string[] {
   return text
     .split(/\n+|(?<=[.!?])\s+/)
@@ -150,7 +173,7 @@ const CATEGORY_SIGNALS: Record<Category, [string, number][]> = {
   "School Admin": [
     ["school", 2], ["pupil", 1], ["consent", 2], ["permission", 1], ["parentpay", 2], ["class ", 1], ["teacher", 1], ["year ", 1],
     ["reception", 1], ["uniform", 1], ["term", 1], ["trip", 1], ["inset", 2], ["pta", 2], ["headteacher", 1], ["homework", 1],
-    ["reading log", 1], ["parents' evening", 2],
+    ["reading log", 1], ["parents' evening", 2], ["pe kit", 2], ["book character", 2],
   ],
   "Sports Club": [
     ["club", 2], ["training", 2], ["coach", 1], ["match", 1], ["fixture", 2], ["tournament", 2], ["squad", 2], ["football", 2],
@@ -162,11 +185,23 @@ const CATEGORY_SIGNALS: Record<Category, [string, number][]> = {
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+/** A club message names the club, the coach, or the session. "Swimming is cancelled" in a class chat does not. */
+const CLEAR_CLUB =
+  /\b(clubs?|coaches?|training|matches|match|fixtures?|tournaments?|squads?|fc|afc|kick-?off|shin pads|football|netball|rugby|cricket|gymnastics|karate|pitch)\b/i;
+
 function classify(text: string): Category {
+  const scores = new Map<Category, number>();
+  for (const [cat, signals] of Object.entries(CATEGORY_SIGNALS) as [Category, [string, number][]][]) {
+    scores.set(
+      cat,
+      signals.reduce((sum, [k, w]) => sum + (new RegExp(`\\b${escapeRe(k)}`, "i").test(text) ? w : 0), 0),
+    );
+  }
+  if ((scores.get("Sports Club") ?? 0) > 0 && !CLEAR_CLUB.test(text)) scores.set("Sports Club", 0);
+
   let best: Category = "General Notice";
   let bestScore = 0;
-  for (const [cat, signals] of Object.entries(CATEGORY_SIGNALS) as [Category, [string, number][]][]) {
-    const score = signals.reduce((s, [k, w]) => s + (new RegExp(`\\b${escapeRe(k)}`, "i").test(text) ? w : 0), 0);
+  for (const [cat, score] of scores) {
     if (score > bestScore) {
       best = cat;
       bestScore = score;
@@ -229,8 +264,12 @@ function findTitle(body: string, subject: string | null, audience: string | null
   if ((m = body.match(/\b([A-Z][a-z]+) is turning (\d{1,2})\b/))) return `${m[1]}'s ${ordinal(+m[2])} Birthday Party`;
   if ((m = body.match(/\b([A-Z][a-z]+)'s (\d{1,2}(?:st|nd|rd|th) )?birthday/i))) return `${m[1]}'s ${m[2] ?? ""}Birthday Party`;
   if ((m = body.match(/[Tt]rip to (the )?([A-Z][\w']*(?:\s[A-Z][\w']*)*)/))) return `Trip to ${m[1] ?? ""}${m[2]}`;
+  if (/\bbook characters?\b/i.test(body) || /\bdress(?:ed)? up as a book\b/i.test(body)) return "Book character day";
 
-  const lower = body.toLowerCase();
+  const eventText = sentences(body)
+    .filter((s) => !(/£/.test(s) && /\b(please\s+)?(send|pay|bring|chip in|payable|donation)\b/i.test(s)))
+    .join(" ");
+  const lower = (eventText || body).toLowerCase();
   for (const phrase of EVENT_PHRASES) if (lower.includes(phrase)) return titleCase(phrase);
 
   const prefix = audience && /^(U\d|Under)/i.test(audience) ? `${audience} ` : "";
@@ -256,7 +295,12 @@ const KIT_ITEMS = [
   "plimsolls", "gloves", "raincoat", "boots", "hat",
 ].sort((a, b) => b.length - a.length);
 
-const KIT_CUE = /\b(bring|pack|need|needs|will need|wear|remember|don't forget|do not forget|should have|required|must have)\b/i;
+const KIT_CUE = /\b(bring|pack|need|needs|will need|wear|remember|don't forget|do not forget|should have|required|must have|please send)\b/i;
+
+interface DraftTask {
+  text: string;
+  due: string | null;
+}
 
 function kitTask(item: string, adj?: string): string {
   if (item === "packed lunch") return "Make a packed lunch";
@@ -274,33 +318,45 @@ function payVia(sentence: string, body: string): string {
   return "";
 }
 
-function findTasks(body: string): string[] {
-  const out: string[] = [];
-  const add = (t: string) => {
-    if (!out.some((o) => o.toLowerCase() === t.toLowerCase())) out.push(t);
+function findTasks(body: string, now: Date): DraftTask[] {
+  const out: DraftTask[] = [];
+  const add = (text: string, due: string | null = null) => {
+    if (!out.some((o) => o.text.toLowerCase() === text.toLowerCase())) out.push({ text, due });
   };
+  const dueOf = (s: string) => findDates(s, now)[0]?.iso ?? null;
   const sents = sentences(body);
+
+  for (const s of sents) {
+    const due = dueOf(s);
+    if (/\bbook characters?\b/i.test(s) || /\bdress(?:ed)? up as a book\b/i.test(s)) add("Prepare book character costume", due);
+    const send = s.match(/\bplease\s+send\s+£\s?(\d+(?:\.\d{2})?)\s+for\s+(?:the\s+)?([a-z][a-z\s]{1,40}?)(?=\s+by\b|[.!?,]|$)/i);
+    if (send) add(`Send £${send[1]} for ${send[2].trim().toLowerCase()}`, due);
+    if (/\bswimm\w*\b/i.test(s) && /\bcancell?ed\b/i.test(s) && /\bpe\s+kit\b/i.test(s)) add("Pack PE kit instead of swimming", due);
+  }
 
   // Consent / forms
   const consent = sents.find((s) => /\b(consent|permission)\b/i.test(s));
-  if (consent) add(/\b(online|portal|link|website)\b/i.test(consent) ? "Complete online consent form" : "Sign & return consent form");
+  if (consent) add(/\b(online|portal|link|website)\b/i.test(consent) ? "Complete online consent form" : "Sign & return consent form", dueOf(consent));
   for (const s of sents) {
+    const due = dueOf(s);
     const doc = s.match(/\b(reading (?:log|record)|planner|homework diary|reply slip|letter)s?\b/i);
-    if (doc && /\bsign/i.test(s)) add(`Sign & return ${doc[1].toLowerCase()}`);
-    if (/\border form\b/i.test(s)) add("Submit kit order form");
+    if (doc && /\bsign/i.test(s)) add(`Sign & return ${doc[1].toLowerCase()}`, due);
+    if (/\border form\b/i.test(s)) add("Submit kit order form", due);
   }
 
-  // Money
+  // Money. "Please send £2 for the cake sale" is already its own action.
   for (const s of sents) {
+    if (/\bplease\s+send\s+£/i.test(s)) continue;
     const mm = s.match(/£\s?(\d+(?:\.\d{2})?)/);
     if (!mm) continue;
+    const due = dueOf(s);
     const amt = `£${mm[1]}`;
     if (/\b(gift|present|chip in|contribut\w*|collection)\b/i.test(s)) {
-      add(/chip in|contribut|joint|collection/i.test(s) ? `Chip in ${amt} for the group gift` : `Buy a present (~${amt})`);
+      add(/chip in|contribut|joint|collection/i.test(s) ? `Chip in ${amt} for the group gift` : `Buy a present (~${amt})`, due);
     } else if (/\b(subs|cash|coins?|donat\w*|bring)\b/i.test(s) && !/parentpay|\bpay(able)? (online|via)\b/i.test(`${s} ${sents[sents.indexOf(s) + 1] ?? ""}`)) {
-      add(`Bring ${amt}${/subs/i.test(s) ? " subs" : /donat/i.test(s) ? " donation" : " in cash"}`);
+      add(`Bring ${amt}${/subs/i.test(s) ? " subs" : /donat/i.test(s) ? " donation" : " in cash"}`, due);
     } else if (/\b(pay|payable|payment|costs?|fee|tickets?|charge|price)\b/i.test(s)) {
-      add(`Pay ${amt}${payVia(s, body)}`);
+      add(`Pay ${amt}${payVia(s, body)}`, due);
     }
   }
 
@@ -312,7 +368,7 @@ function findTasks(body: string): string[] {
       (/\blet\s.{0,30}?know\b/i.test(s) && /(make it|attend|com(e|ing)|numbers|place|join)/i.test(s));
     if (!isRsvp) continue;
     const who = s.match(/\b[Ll]et ((?:Coach|Mr|Mrs|Miss|Ms)\.?\s[A-Z][a-z]+|[A-Z][a-z]+) know/);
-    add(who ? `Confirm attendance with ${who[1]}` : "RSVP");
+    add(who ? `Confirm attendance with ${who[1]}` : "RSVP", dueOf(s));
   }
 
   // Kit
@@ -325,32 +381,39 @@ function findTasks(body: string): string[] {
       const km = work.match(re);
       if (!km) continue;
       work = work.replace(km[0], " ");
+      if (item === "pe kit" && out.some((t) => t.text === "Pack PE kit instead of swimming")) continue;
       const t = kitTask(item, km[1]);
       if (!kit.includes(t)) kit.push(t);
     }
+    kit.splice(0, kit.length).slice(0, 5).forEach((t) => add(t, dueOf(s)));
   }
-  kit.slice(0, 5).forEach(add);
 
   // Everything else
   for (const s of sents) {
     const noSwim = s.replace(/swimming costume/gi, "");
-    if (/non[- ]uniform/i.test(s)) add("Pick out non-uniform outfit");
-    else if (/\bfull (school )?uniform\b/i.test(s)) add("Lay out full school uniform");
-    if (/\b(dress(ed)? up|come dressed|fancy dress|costume)\b/i.test(noSwim)) add("Prepare a costume");
-    if (/\b(medication|inhaler|epi-?pen)\b/i.test(s) && /\b(hand|bring|give|pack)\b/i.test(s)) add("Hand in any medication (e.g. inhaler)");
+    const due = dueOf(s);
+    if (/non[- ]uniform/i.test(s)) add("Pick out non-uniform outfit", due);
+    else if (/\bfull (school )?uniform\b/i.test(s)) add("Lay out full school uniform", due);
+    if (
+      /\b(dress(?:ed)? up|come dressed|fancy dress|costume)\b/i.test(noSwim) &&
+      !out.some((t) => t.text === "Prepare book character costume")
+    ) {
+      add("Prepare a costume", due);
+    }
+    if (/\b(medication|inhaler|epi-?pen)\b/i.test(s) && /\b(hand|bring|give|pack)\b/i.test(s)) add("Hand in any medication (e.g. inhaler)", due);
 
     const arrive = s.match(/\barrives? (?:by|at|for)\s+(\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm))/i);
     if (arrive) {
       const t = findTimes(arrive[1])[0];
-      if (t) add(`Arrive by ${formatTime(t.value)}`);
+      if (t) add(`Arrive by ${formatTime(t.value)}`, due);
     }
     if (/\b(collect|pick[- ]?up)\b/i.test(s)) {
       const t = findTimes(s)[0];
-      if (t) add(`Pick up at ${formatTime(t.value)}`);
+      if (t) add(`Pick up at ${formatTime(t.value)}`, due);
     }
-    if (/\b(inset|closed to pupils|school (?:is |will be )?closed)\b/i.test(s)) add("Arrange childcare for the day");
-    if (/\bbook (?:a |your )?(?:[\w-]+ ){0,2}(slot|appointment|place|ticket)/i.test(s)) add(/club/i.test(s) ? "Book a holiday club place" : "Book a slot");
-    else if (/\b(sign up|register)\b/i.test(s)) add("Register / sign up");
+    if (/\b(inset|closed to pupils|school (?:is |will be )?closed)\b/i.test(s)) add("Arrange childcare for the day", due);
+    if (/\bbook (?:a |your )?(?:[\w-]+ ){0,2}(slot|appointment|place|ticket)/i.test(s)) add(/club/i.test(s) ? "Book a holiday club place" : "Book a slot", due);
+    else if (/\b(sign up|register)\b/i.test(s)) add("Register / sign up", due);
   }
 
   return out;
@@ -391,13 +454,14 @@ export function giftSearchUrl(title: string, task = ""): string {
   return `https://www.amazon.co.uk/s?k=${encodeURIComponent(query)}`;
 }
 
-function attachLinks(texts: string[], ctx: { raw: string; body: string; title: string; channel: Channel }): Task[] {
+function attachLinks(drafts: DraftTask[], ctx: { raw: string; body: string; title: string; channel: Channel }): Task[] {
   const urls = findUrls(ctx.body);
   const pick = (re: RegExp) => urls.find((u) => re.test(u.url) || re.test(u.context))?.url;
   const fromAddress = ctx.channel === "email" ? (header(ctx.raw, "from") ?? "").match(EMAIL_RE)?.[0] : undefined;
   const replyTo = ctx.body.match(EMAIL_RE)?.[0] ?? fromAddress;
 
-  return texts.map<Task>((text) => {
+  return drafts.map<Task>((draft) => {
+    const text = draft.text;
     let link: Task["link"];
     if (/consent|form|sign & return|register|sign up/i.test(text)) {
       const url = pick(/consent|permission|form|sign|register/i) ?? (urls.length === 1 ? urls[0].url : undefined);
@@ -416,7 +480,7 @@ function attachLinks(texts: string[], ctx: { raw: string; body: string; title: s
     } else if (/^Buy a present/i.test(text)) {
       link = { label: "Gift ideas", url: giftSearchUrl(ctx.title, text) };
     }
-    return link ? { id: uid(), text, done: false, link } : { id: uid(), text, done: false };
+    return { id: uid(), text, done: false, ...(draft.due ? { due: draft.due } : {}), ...(link ? { link } : {}) };
   });
 }
 
@@ -428,7 +492,7 @@ export function extract(raw: string, channel: Channel, now: Date = new Date()): 
   const subject = header(raw, "subject");
   const source = findSource(raw, channel);
   let body = stripHeaders(raw);
-  if (channel === "whatsapp") body = body.replace(/^[^:\n]{1,40}:\s/gm, ""); // drop "Sophie (Ava's mum): "
+  if (channel === "whatsapp") body = normaliseChat(body);
 
   const category = classify(raw);
   const audience = raw.match(AUDIENCE_RE)?.[1] ?? null;
@@ -445,18 +509,18 @@ export function extract(raw: string, channel: Channel, now: Date = new Date()): 
     )?.value ?? null;
 
   let title = findTitle(body, subject, audience);
-  let tasks = findTasks(body);
+  let tasks = findTasks(body, now);
 
-  const hasConsent = tasks.some((t) => /consent/i.test(t));
+  const hasConsent = tasks.some((t) => /consent/i.test(t.text));
   if (hasConsent && !/consent|permission|slip|form/i.test(title) && title.length <= 24) title = `${title} permission slip`;
 
   const host = title.match(/^([A-Z][a-z]+)'s .*Birthday/);
-  if (host) tasks = tasks.map((t) => (t === "RSVP" ? `RSVP to ${host[1]}'s parents` : t));
+  if (host) tasks = tasks.map((t) => (t.text === "RSVP" ? { ...t, text: `RSVP to ${host[1]}'s parents` } : t));
   // Parties need a present unless the invite says otherwise.
-  if (category === "Birthday Party" && !tasks.some((t) => /present|gift/i.test(t)) && !/\bno (presents|gifts)\b/i.test(body)) {
-    tasks.push("Buy a present");
+  if (category === "Birthday Party" && !tasks.some((t) => /present|gift/i.test(t.text)) && !/\bno (presents|gifts)\b/i.test(body)) {
+    tasks.push({ text: "Buy a present", due: null });
   }
-  if (!tasks.length) tasks = [eventDate ? "Add to the family calendar" : "Read & acknowledge"];
+  if (!tasks.length) tasks = [{ text: eventDate ? "Add to the family calendar" : "Read & acknowledge", due: null }];
 
   const location = findLocation(body);
   const found = [!/Forwarded email|Parent group chat/.test(source), eventDate, eventTime, location, deadline, audience].filter(Boolean).length;

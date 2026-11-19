@@ -66,6 +66,7 @@ export function Onboarding({ onFinish }: { onFinish: (start: FirstStep) => void 
           <Layers className="h-4 w-4" />
         </div>
         <p className="text-[14.5px] font-semibold tracking-[-0.01em] text-ink">FamilyDocket</p>
+        <span className="rounded-full bg-accent-100 px-1.5 py-px text-[9px] font-semibold uppercase tracking-[0.12em] text-accent-700">Beta</span>
         <p className="ml-auto text-[12px] tabular-nums text-stone-400">
           Step {step + 1} of {STEPS.length}
         </p>

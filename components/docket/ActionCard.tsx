@@ -131,6 +131,7 @@ export function ActionCard({ item, now, onToggle, onArchive, onRestore, onDelete
                       )}
                     >
                       {task.text}
+                      {task.due && !task.done && <span className="mt-0.5 block text-[12px] text-stone-400">Due {formatShort(task.due)}</span>}
                     </span>
                   </button>
                   {isGiftTask(task) ? (

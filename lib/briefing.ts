@@ -1,5 +1,5 @@
 import type { DocketItem, Task } from "./types";
-import { addDays, daysUntil, formatLong, formatShort, formatTime, formatWeekday, startOfDay, toISO } from "./dates";
+import { addDays, daysUntil, formatLong, formatShort, formatTime, formatWeekday, startOfDay, timeGreeting, toISO } from "./dates";
 
 export type DispatchMode = "morning" | "evening";
 
@@ -84,14 +84,18 @@ export function buildDispatch(items: DocketItem[], mode: DispatchMode, now: Date
     const eventSoon = i.eventDate && daysUntil(i.eventDate, now) >= offset && daysUntil(i.eventDate, now) <= offset + 1;
     const moneyDue = i.deadline && daysUntil(i.deadline, now) <= offset + 1;
     return open(i)
-      .filter((t) => KIT_RE.test(t.text) && !SLIP_RE.test(t.text) && (eventSoon || (moneyDue && t.text.includes("£"))))
+      .filter((t) => {
+        const dueSoon = t.due != null && daysUntil(t.due, now) >= 0 && daysUntil(t.due, now) <= offset + 1;
+        return KIT_RE.test(t.text) && !SLIP_RE.test(t.text) && (eventSoon || dueSoon || (moneyDue && t.text.includes("£") && !t.due));
+      })
       .map((t) => ({ i, t }));
   });
   sections.push({
     heading: mode === "morning" ? "Kit & money" : "Pack tonight",
     lines: kit.length
       ? kit.map(({ i, t }) => {
-          const when = i.eventDate && i.eventDate !== focusIso ? ` (${formatWeekday(i.eventDate)})` : "";
+          const whenDate = t.due && t.due !== focusIso ? t.due : i.eventDate && i.eventDate !== focusIso ? i.eventDate : null;
+          const when = whenDate ? ` (${formatWeekday(whenDate)})` : "";
           return { text: `${t.text} — for ${i.title}${when}` };
         })
       : [{ text: mode === "morning" ? "Nothing extra in the bag today." : "Nothing to pack for tomorrow.", tone: "muted" }],
@@ -114,7 +118,9 @@ export function buildDispatch(items: DocketItem[], mode: DispatchMode, now: Date
   const label = mode === "morning" ? "Morning Dispatch" : "Evening Dispatch";
   const dateLine = formatLong(now);
   const greeting =
-    mode === "morning" ? "Good morning. Here's what matters today." : "Good evening. Here's what to sort before bed.";
+    mode === "morning"
+      ? `${timeGreeting(now)}. Here's what matters today.`
+      : `${timeGreeting(now)}. Here's what to sort before bed.`;
   const footer =
     mode === "morning"
       ? `${openCount} open action${openCount === 1 ? "" : "s"} in total. Handle the flagged ones first; everything else can wait.`

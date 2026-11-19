@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Archive, CalendarDays, Inbox, ListChecks, Plus } from "lucide-react";
 import type { DocketItem } from "@/lib/types";
-import { daysUntil, formatShort, relativeDay } from "@/lib/dates";
+import { daysUntil, formatShort, relativeDay, timeGreeting } from "@/lib/dates";
 import { findGaps } from "@/lib/childcare";
 import { useProfile } from "@/lib/profile";
 import { useDocket } from "@/lib/store";
@@ -89,15 +89,17 @@ export function Dashboard({ now, onAdd }: { now: Date; onAdd: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, items, now]);
 
-  const hour = now.getHours();
-  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const greeting = timeGreeting(now);
+  const actionItems = counts["Action Items"];
 
   return (
     <div className="space-y-5 px-4 pb-8 pt-2">
       <header className="px-1">
         <h1 className="text-[26px] font-semibold tracking-[-0.025em] text-ink">{greeting}.</h1>
         <p className="mt-1 text-[14px] text-stone-500">
-          {openTasks === 0 ? "Nothing outstanding. Enjoy it." : `${openTasks} open action${openTasks === 1 ? "" : "s"} across ${counts["Action Items"]} items.`}
+          {openTasks === 0
+            ? "Nothing outstanding. Enjoy it."
+            : `${openTasks} open action${openTasks === 1 ? "" : "s"} across ${actionItems} item${actionItems === 1 ? "" : "s"}.`}
         </p>
       </header>
 

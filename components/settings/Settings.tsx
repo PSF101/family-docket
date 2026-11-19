@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Download, FileText, HardDrive, ShieldCheck, Trash2, UserRound, Users } from "lucide-react";
+import { Download, FileText, HardDrive, MessageSquare, ShieldCheck, Trash2, UserRound, Users } from "lucide-react";
 import { deleteAllUserData, newCarer, PRIVACY_POLICY_VERSION, useProfile } from "@/lib/profile";
 import { useDocket } from "@/lib/store";
 import { formatRange, formatUK, toISO } from "@/lib/dates";
@@ -10,6 +10,9 @@ import { cn, downloadFile } from "@/lib/utils";
 import { Modal, PrivacyPolicyModal } from "../privacy/PrivacyPolicy";
 import { SectionLabel } from "../ui";
 import { CarerEditor, ChildrenEditor } from "./FamilyFields";
+
+/** Replace with the real short feedback form before launch. */
+const FEEDBACK_URL = "https://example.com/familydocket-feedback";
 
 const stamp = (iso: string) => {
   const d = new Date(iso);
@@ -119,6 +122,15 @@ export function Settings({ onToast }: { onToast: (m: string) => void }) {
           </div>
         </Card>
       </section>
+
+      <a
+        href={FEEDBACK_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-3.5 text-[14px] font-medium text-ink shadow-card ring-1 ring-stone-900/[0.04] transition hover:ring-stone-300"
+      >
+        <MessageSquare className="h-4 w-4" /> Send feedback
+      </a>
 
       <section>
         <SectionLabel>Danger zone</SectionLabel>

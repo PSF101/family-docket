@@ -2,6 +2,14 @@ export const DAY_MS = 86_400_000;
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
+/** Shared by the Docket and Briefing so both greetings change at the same hours. */
+export function timeGreeting(now: Date): "Good morning" | "Good afternoon" | "Good evening" {
+  const hour = now.getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+}
+
 export function startOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }

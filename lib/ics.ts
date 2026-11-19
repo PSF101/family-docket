@@ -256,7 +256,9 @@ export function exportICS(items: DocketItem[], now: Date = new Date()): { ics: s
 
   for (const i of events) {
     const date = i.eventDate!;
-    const open = i.tasks.filter((t) => !t.done).map((t) => `☐ ${t.text}${t.link && !t.link.url.startsWith("mailto:") ? ` — ${t.link.url}` : ""}`);
+    const open = i.tasks
+      .filter((t) => !t.done)
+      .map((t) => `☐ ${t.text}${t.due ? ` (due ${formatShort(t.due)})` : ""}${t.link && !t.link.url.startsWith("mailto:") ? ` — ${t.link.url}` : ""}`);
     const description = [
       i.summary,
       i.deadline ? `Deadline: ${formatShort(i.deadline)}` : "",
