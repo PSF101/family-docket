@@ -1,4 +1,4 @@
-import { addDays, formatSpoken, nextWeekday, startOfDay, toISO } from "./dates";
+import { addDays, formatSpoken, nextWeekday, startOfDay, toISO, type Country } from "./dates";
 import { holidayOn, isBankHoliday } from "./terms";
 
 export interface Sample {
@@ -10,7 +10,7 @@ export interface Sample {
 /** The first given weekday at least `minDays` away that is a normal term-time school day. */
 function termDay(now: Date, weekday: number, minDays: number): Date {
   let d = nextWeekday(addDays(now, minDays - 1), weekday);
-  while (holidayOn(toISO(d)) || isBankHoliday(toISO(d))) d = addDays(d, 7);
+  while (holidayOn(toISO(d), "UK") || isBankHoliday(toISO(d), "UK")) d = addDays(d, 7);
   return d;
 }
 
@@ -96,9 +96,29 @@ This message was sent via Arbor.`,
   ];
 }
 
+const UK_WORDING = /\b(inset|parentpay|arbor)\b|£/i;
+
 /** Sample inputs, written relative to "now" so the demo dates always look current. */
-export function emailSamples(now: Date): Sample[] {
-  return [...ukSchoolSystemSamples(now), ...otherEmailSamples(now)];
+export function emailSamples(now: Date, country: Country = "UK"): Sample[] {
+  const shared = [...ukSchoolSystemSamples(now), ...otherEmailSamples(now)];
+  if (country !== "US") return shared;
+  return [usSchoolSample(), ...shared.filter((s) => !UK_WORDING.test(`${s.label}\n${s.text}`))];
+}
+
+function usSchoolSample(): Sample {
+  return {
+    id: "us-field-trip",
+    label: "School field trip",
+    text: `From: Maple Elementary <office@maple.example>
+Subject: 2nd grade field trip
+
+Hi families,
+
+The 2nd grade will visit the science museum on 12/3, 9am-1pm. Please send $5 for the bus by 11/25.
+
+Thanks,
+Maple Elementary`,
+  };
 }
 
 function otherEmailSamples(now: Date): Sample[] {
@@ -180,9 +200,9 @@ Oakwood PTA x`,
 }
 
 /** Sample chats. These are inserted only when a sample button is clicked, never for an uploaded image. */
-export function chatTranscripts(now: Date): Sample[] {
+export function chatTranscripts(now: Date, country: Country = "UK"): Sample[] {
   const party = addDays(nextWeekday(now, 6), 14);
-  return [
+  const chats: Sample[] = [
     {
       id: "party",
       label: "Party invite chat",
@@ -212,10 +232,22 @@ Amir: Thank you, I totally forgot 😅 Is it also the deadline for the reading l
 Jess: Yes, reading logs need to be signed and back in book bags by tomorrow`,
     },
   ];
+  if (country !== "US") return chats;
+  return [
+    {
+      id: "us-party",
+      label: "Party invite chat",
+      text: `Chat: 2nd grade parents
+Maya's mom: Hi all! Maya is turning 8. Party at the trampoline park on 12/5, 2pm-4pm
+Maya's mom: Please RSVP by Wednesday. Kids need grip socks (they sell them there for $2)
+Sam's dad: We'll bring $5 for the group gift`,
+    },
+    ...chats.filter((s) => !UK_WORDING.test(`${s.label}\n${s.text}`)),
+  ];
 }
 
 /** A small sample calendar (.ics) so the import can be tried without exporting a real one. */
-export function sampleCalendar(now: Date): string {
+export function sampleCalendar(now: Date, country: Country = "UK"): string {
   const today = startOfDay(now);
   const ymd = (d: Date) => toISO(d).replace(/-/g, "");
   const swimStart = addDays(nextWeekday(now, 3), -21); // repeating weekly, started weeks ago
@@ -249,7 +281,7 @@ export function sampleCalendar(now: Date): string {
     "UID:halfterm-003@sample",
     `DTSTART;VALUE=DATE:${ymd(halfTerm)}`,
     `DTEND;VALUE=DATE:${ymd(addDays(halfTerm, 5))}`,
-    "SUMMARY:Half term – no school",
+    `SUMMARY:${country === "US" ? "No school" : "Half term – no school"}`,
     "END:VEVENT",
     "BEGIN:VEVENT",
     "UID:lunch-004@sample",

@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { setActiveCountry, type Country } from "./dates";
 import { uid } from "./utils";
 
 /** Bump when the policy text changes materially; users who agreed to an older version are asked again. */
@@ -44,6 +45,8 @@ export interface Profile {
   name: string;
   email: string;
   createdAt: string;
+  /** Missing on profiles saved before the country setting existed; those stay UK. */
+  country?: Country;
   consent: Consent;
   children: Child[];
   /** Everyone who normally covers school pick-up. A gap needs all of them unavailable. */
@@ -65,6 +68,11 @@ export const WEEKDAYS: { value: number; short: string }[] = [
 
 export const newCarer = (name = ""): Carer => ({ id: uid(), name, workDays: [1, 2, 3, 4, 5], away: [] });
 export const newChild = (name = ""): Child => ({ id: uid(), name, school: "", yearGroup: "" });
+
+/** Profiles saved before this setting existed are UK families. */
+export function countryOf(profile: { country?: Country } | null | undefined): Country {
+  return profile?.country === "US" ? "US" : "UK";
+}
 
 /**
  * Erases everything FamilyDocket holds about this user.
@@ -98,6 +106,7 @@ const Ctx = createContext<ProfileContext | null>(null);
 export function ProfileProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [ready, setReady] = useState(false);
+  setActiveCountry(countryOf(profile));
 
   useEffect(() => {
     try {

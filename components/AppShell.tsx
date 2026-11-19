@@ -106,6 +106,7 @@ export function AppShell() {
     const demo: Profile = {
       name: "Alex Morgan",
       email: "alex@example.co.uk",
+      country: "UK",
       createdAt: agreedAt,
       consent: { privacyPolicy: true, policyVersion: PRIVACY_POLICY_VERSION, agreedAt, productEmails: false },
       children: [{ ...newChild("Sam"), school: "St. Mary's Primary", yearGroup: "Year 4" }],

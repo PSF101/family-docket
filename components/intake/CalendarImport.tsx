@@ -6,6 +6,7 @@ import type { Extraction } from "@/lib/types";
 import { eventToExtraction, parseICS } from "@/lib/ics";
 import { sampleCalendar } from "@/lib/samples";
 import { daysUntil, formatShort, formatTime, relativeDay } from "@/lib/dates";
+import { countryOf, useProfile } from "@/lib/profile";
 import { useDocket } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { CategoryTag } from "../ui";
@@ -44,6 +45,8 @@ interface Row {
 
 export function CalendarImport({ now, onImported }: { now: Date; onImported: (count: number) => void }) {
   const { items, importMany } = useDocket();
+  const { profile } = useProfile();
+  const country = countryOf(profile);
   const [calName, setCalName] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[] | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -60,7 +63,7 @@ export function CalendarImport({ now, onImported }: { now: Date; onImported: (co
     }
     const parsed = parseICS(text, now);
     const name = parsed.name ?? fileName?.replace(/\.ics$/i, "") ?? null;
-    const built = parsed.events.map((ev) => ({ ext: eventToExtraction(ev, name, now), recurring: ev.recurring }));
+    const built = parsed.events.map((ev) => ({ ext: eventToExtraction(ev, name, now, country), recurring: ev.recurring }));
     if (!built.length) {
       setError("No events found between last week and the next 8 weeks.");
       setRows(null);
@@ -114,8 +117,8 @@ export function CalendarImport({ now, onImported }: { now: Date; onImported: (co
           <div>
             <p className="text-[15px] font-semibold text-ink">{calName ?? "Your calendar"}</p>
             <p className="text-[12.5px] text-stone-500">
-              {rows.length} events from last week to the next 8 weeks
-              {withActions ? ` · ${withActions} with actions spotted` : ""}
+              {rows.length} event{rows.length === 1 ? "" : "s"} from last week to the next 8 weeks
+              {withActions === 1 ? " · 1 with an action spotted" : withActions ? ` · ${withActions} with actions spotted` : ""}
             </p>
           </div>
           <button
@@ -261,7 +264,7 @@ export function CalendarImport({ now, onImported }: { now: Date; onImported: (co
         <p className="mb-2 text-[12px] text-stone-400">No file handy? Try it with a sample:</p>
         <button
           type="button"
-          onClick={() => load(sampleCalendar(now), "Family")}
+          onClick={() => load(sampleCalendar(now, country), "Family")}
           className="rounded-full bg-white px-3 py-1.5 text-[12.5px] text-stone-600 ring-1 ring-stone-200 transition hover:text-ink hover:ring-stone-300"
         >
           Sample family calendar

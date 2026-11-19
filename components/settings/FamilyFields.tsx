@@ -2,13 +2,41 @@
 
 import { Plus, Trash2, X } from "lucide-react";
 import { type Away, type Carer, type Child, newChild, WEEKDAYS } from "@/lib/profile";
-import { formatRange } from "@/lib/dates";
+import { formatRange, ordinal, type Country } from "@/lib/dates";
 import { cn, uid } from "@/lib/utils";
 
 export const inputCls =
   "w-full rounded-xl bg-white px-3 py-2.5 text-[14px] text-ink outline-none ring-1 ring-stone-200 placeholder:text-stone-300 focus:ring-2 focus:ring-accent-500";
 
-export function ChildrenEditor({ value, onChange }: { value: Child[]; onChange: (c: Child[]) => void }) {
+const US_GRADES = ["K", ...Array.from({ length: 12 }, (_, i) => `${ordinal(i + 1)} grade`)];
+
+export function CountryPicker({ value, onChange }: { value: Country; onChange: (c: Country) => void }) {
+  return (
+    <div>
+      <p className="mb-1.5 text-[13px] font-medium text-stone-600">Country</p>
+      <div className="flex rounded-lg bg-stone-200/60 p-0.5 text-[13px] font-medium" role="group" aria-label="Country">
+        {(
+          [
+            ["UK", "UK"],
+            ["US", "US"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={value === id}
+            onClick={() => onChange(id)}
+            className={cn("flex-1 rounded-md py-2 transition", value === id ? "bg-white text-ink shadow-sm" : "text-stone-500")}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function ChildrenEditor({ value, onChange, country = "UK" }: { value: Child[]; onChange: (c: Child[]) => void; country?: Country }) {
   const set = (id: string, patch: Partial<Child>) => onChange(value.map((c) => (c.id === id ? { ...c, ...patch } : c)));
   return (
     <div className="space-y-2.5">
@@ -24,7 +52,19 @@ export function ChildrenEditor({ value, onChange }: { value: Child[]; onChange: 
           </div>
           <div className="mt-2 grid grid-cols-[1fr_7.5rem] gap-2">
             <input value={c.school} onChange={(e) => set(c.id, { school: e.target.value })} placeholder="School (optional)" aria-label="School" className={inputCls} />
-            <input value={c.yearGroup} onChange={(e) => set(c.id, { yearGroup: e.target.value })} placeholder="Year 4" aria-label="Year group" className={inputCls} />
+            {country === "US" ? (
+              <select value={c.yearGroup} onChange={(e) => set(c.id, { yearGroup: e.target.value })} aria-label="Grade" className={inputCls}>
+                <option value="">Grade</option>
+                {c.yearGroup && !US_GRADES.includes(c.yearGroup) && <option value={c.yearGroup}>{c.yearGroup}</option>}
+                {US_GRADES.map((grade) => (
+                  <option key={grade} value={grade}>
+                    {grade === "K" ? "K" : grade.replace(" grade", "")}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input value={c.yearGroup} onChange={(e) => set(c.id, { yearGroup: e.target.value })} placeholder="Year 4" aria-label="Year group" className={inputCls} />
+            )}
           </div>
         </div>
       ))}
@@ -60,19 +100,19 @@ export function WorkDayPicker({ value, onChange }: { value: number[]; onChange: 
 }
 
 /** Each carer's name and usual working days; `withAway` adds the "dates away" list used in Settings. */
-export function CarerEditor({ carer, onChange, label, withAway = false }: { carer: Carer; onChange: (c: Carer) => void; label: string; withAway?: boolean }) {
+export function CarerEditor({ carer, onChange, label, withAway = false, country = "UK" }: { carer: Carer; onChange: (c: Carer) => void; label: string; withAway?: boolean; country?: Country }) {
   return (
     <div className="rounded-2xl bg-stone-50 p-3 ring-1 ring-stone-900/[0.04]">
       <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-400">{label}</p>
       <input value={carer.name} onChange={(e) => onChange({ ...carer, name: e.target.value })} placeholder="First name" aria-label={label === "You" ? "Your name" : `${label} name`} className={inputCls} />
       <p className="mb-1.5 mt-3 text-[12.5px] text-stone-500">Usually working on</p>
       <WorkDayPicker value={carer.workDays} onChange={(workDays) => onChange({ ...carer, workDays })} />
-      {withAway && <AwayEditor value={carer.away} onChange={(away) => onChange({ ...carer, away })} />}
+      {withAway && <AwayEditor value={carer.away} country={country} onChange={(away) => onChange({ ...carer, away })} />}
     </div>
   );
 }
 
-function AwayEditor({ value, onChange }: { value: Away[]; onChange: (a: Away[]) => void }) {
+function AwayEditor({ value, onChange, country }: { value: Away[]; onChange: (a: Away[]) => void; country: Country }) {
   function add(form: HTMLFormElement) {
     const data = new FormData(form);
     const from = String(data.get("from") || "");
@@ -106,11 +146,11 @@ function AwayEditor({ value, onChange }: { value: Away[]; onChange: (a: Away[]) 
       >
         <label className="text-[11.5px] text-stone-400">
           From
-          <input name="from" type="date" required lang="en-GB" className={cn(inputCls, "mt-1 py-2 text-[13px]")} />
+          <input name="from" type="date" required lang={country === "US" ? "en-US" : "en-GB"} className={cn(inputCls, "mt-1 py-2 text-[13px]")} />
         </label>
         <label className="text-[11.5px] text-stone-400">
           To
-          <input name="to" type="date" lang="en-GB" className={cn(inputCls, "mt-1 py-2 text-[13px]")} />
+          <input name="to" type="date" lang={country === "US" ? "en-US" : "en-GB"} className={cn(inputCls, "mt-1 py-2 text-[13px]")} />
         </label>
         <input name="note" placeholder="Note, e.g. Conference in Leeds" className={cn(inputCls, "col-span-2 py-2 text-[13px]")} />
         <button type="submit" className="col-span-2 inline-flex items-center justify-center gap-1.5 rounded-xl bg-white py-2 text-[13px] font-medium text-stone-600 ring-1 ring-stone-200 hover:ring-stone-300">

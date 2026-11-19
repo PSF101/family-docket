@@ -34,6 +34,8 @@ export interface DocketItem {
   eventDate: string | null;
   /** 24h "HH:MM" */
   eventTime: string | null;
+  /** 24h "HH:MM" when the message gives a finish time, e.g. 11am–2pm. */
+  eventEndTime?: string | null;
   location: string | null;
   /** ISO date by which the action items must be done */
   deadline: string | null;

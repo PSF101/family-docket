@@ -30,7 +30,7 @@ export function ExtractionReview({ draft, onChange, now, onConfirm, onBack }: Pr
     source: draft.source,
     channel: draft.channel,
     audience: draft.audience,
-    event: { date: draft.eventDate, time: draft.eventTime, location: draft.location },
+    event: { date: draft.eventDate, time: draft.eventTime, ...(draft.eventEndTime ? { end: draft.eventEndTime } : {}), location: draft.location },
     deadline: draft.deadline,
     action_items: draft.tasks.map((t) =>
       t.link || t.due ? { text: t.text, ...(t.due ? { due: t.due } : {}), ...(t.link ? { link: t.link.url } : {}) } : t.text,
@@ -51,7 +51,7 @@ export function ExtractionReview({ draft, onChange, now, onConfirm, onBack }: Pr
       <header className="px-1">
         <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-accent-700">
           <Sparkles className="h-3.5 w-3.5" />
-          Extracted · {fieldsFound} fields · {draft.tasks.length} actions
+          Extracted · {fieldsFound} field{fieldsFound === 1 ? "" : "s"} · {draft.tasks.length} action{draft.tasks.length === 1 ? "" : "s"}
         </p>
         <h1 className="mt-1.5 text-[24px] font-semibold tracking-[-0.025em] text-ink">Here&apos;s what I found</h1>
         <p className="mt-1 text-[14px] text-stone-500">Check it over, adjust anything, then add it to your docket.</p>

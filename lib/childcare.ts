@@ -3,7 +3,7 @@
  * working or away. These are the only days the Rescue (emergency cover) button is offered.
  */
 import type { DocketItem } from "./types";
-import type { Carer, Profile } from "./profile";
+import { countryOf, type Carer, type Profile } from "./profile";
 import { addDays, fromISO, startOfDay, toISO } from "./dates";
 import { holidayOn, isBankHoliday } from "./terms";
 
@@ -42,6 +42,7 @@ export function findGaps(profile: Profile | null, items: DocketItem[], now: Date
   if (!profile || !profile.carers.length || !profile.children.length) return [];
 
   const closures = items.filter((i) => !i.archived && isClosure(i));
+  const country = countryOf(profile);
   const today = startOfDay(now);
   const days: (Omit<Gap, "from" | "to" | "days"> & { iso: string })[] = [];
 
@@ -50,10 +51,10 @@ export function findGaps(profile: Profile | null, items: DocketItem[], now: Date
     const weekday = date.getDay();
     if (weekday === 0 || weekday === 6) continue;
     const iso = toISO(date);
-    if (isBankHoliday(iso)) continue;
+    if (isBankHoliday(iso, country)) continue;
 
     const closure = closures.find((c) => c.eventDate === iso);
-    const holiday = holidayOn(iso);
+    const holiday = holidayOn(iso, country);
     if (!closure && !holiday) continue;
 
     const statuses = profile.carers.map((c) => carerStatus(c, iso, weekday));

@@ -7,7 +7,7 @@
  */
 import type { DocketItem, Extraction } from "./types";
 import { extract } from "./parser";
-import { addDays, DAY_MS, formatShort, fromISO, startOfDay, toISO } from "./dates";
+import { addDays, DAY_MS, formatShort, fromISO, startOfDay, toISO, type Country } from "./dates";
 
 export interface CalendarEvent {
   uid: string;
@@ -194,8 +194,8 @@ export function parseICS(text: string, now: Date, daysAhead = 60): ParsedCalenda
 const FALLBACK_TASKS = new Set(["Add to the family calendar", "Read & acknowledge"]);
 
 /** Turn a calendar event into a docket item, using the extraction engine to spot actions in its notes. */
-export function eventToExtraction(ev: CalendarEvent, calendarName: string | null, now: Date): Extraction {
-  const ext = extract(`${ev.summary}.\n${ev.description}`, "email", now);
+export function eventToExtraction(ev: CalendarEvent, calendarName: string | null, now: Date, country: Country = "UK"): Extraction {
+  const ext = extract(`${ev.summary}.\n${ev.description}`, "email", now, country);
   const desc = ev.description.replace(/\s+/g, " ").trim();
   return {
     ...ext,

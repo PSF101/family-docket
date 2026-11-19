@@ -7,7 +7,7 @@
  * Swap `extract()` for a call to `/api/extract` when wiring up a real model.
  */
 import type { Category, Channel, Extraction, Task } from "./types";
-import { addDays, formatTime, ordinal, startOfDay, toISO } from "./dates";
+import { addDays, activeCountry, formatTime, ordinal, startOfDay, toISO, type Country } from "./dates";
 import { uid } from "./utils";
 
 /* ------------------------------------------------------------------ */
@@ -76,6 +76,21 @@ interface Hit {
   end: number;
 }
 
+/** The next day-of-month that falls on `weekday` (0 = Sunday). "Friday 27th" must not become this Friday. */
+function dateForOrdinalDay(day: number, weekday: number, today: Date): string | null {
+  if (day < 1 || day > 31 || weekday < 0) return null;
+  for (let i = 0; i < 14; i++) {
+    const cursor = new Date(today.getFullYear(), today.getMonth() + i, 1);
+    const dim = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+    if (day > dim) continue;
+    const dt = new Date(cursor.getFullYear(), cursor.getMonth(), day);
+    if (dt < addDays(today, -1)) continue;
+    if (dt.getDay() !== weekday) continue;
+    return toISO(dt);
+  }
+  return null;
+}
+
 function makeDate(day: number, month: number, year: number | undefined, today: Date): string | null {
   if (month < 0 || month > 11 || day < 1 || day > 31) return null;
   let y = year ?? today.getFullYear();
@@ -87,7 +102,7 @@ function makeDate(day: number, month: number, year: number | undefined, today: D
   return toISO(dt);
 }
 
-export function findDates(text: string, now: Date): Hit[] {
+export function findDates(text: string, now: Date, country: Country = "UK"): Hit[] {
   const today = startOfDay(now);
   const absolute: Hit[] = [];
   const relative: Hit[] = [];
@@ -109,10 +124,22 @@ export function findDates(text: string, now: Date): Hit[] {
     if (overlapsAbsolute(m.index)) continue;
     push(absolute, makeDate(+m[2], MONTHS.indexOf(m[1].slice(0, 3).toLowerCase()), m[3] ? +m[3] : undefined, today), m);
   }
-  // 23/10 or 23/10/26 (UK order)
+  // 23/10 in the UK, 10/23 in the US. A month number above 12 can only be a day.
   const slash = /\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/g;
   while ((m = slash.exec(text))) {
-    push(absolute, makeDate(+m[1], +m[2] - 1, m[3] ? +m[3] : undefined, today), m);
+    const first = +m[1];
+    const second = +m[2];
+    const monthFirst = country === "US" && first <= 12;
+    const day = monthFirst ? second : first;
+    const month = (monthFirst ? first : second) - 1;
+    push(absolute, makeDate(day, month, m[3] ? +m[3] : undefined, today), m);
+  }
+  // "Friday 27th" / "Wednesday 2nd" — the day number, not "this Friday"
+  const namedDay = new RegExp(`\\b(sun|mon|tues|wednes|thurs|fri|satur)day\\s+(\\d{1,2})(?:st|nd|rd|th)\\b(?!\\s+(?:of\\s+)?${MONTH_RE})`, "gi");
+  while ((m = namedDay.exec(text))) {
+    if (overlapsAbsolute(m.index)) continue;
+    const weekday = WEEKDAY_STEMS.indexOf(m[1].toLowerCase());
+    push(absolute, dateForOrdinalDay(+m[2], weekday, today), m);
   }
   // today / tonight / tomorrow
   const rel = /\b(today|tonight|tomorrow)\b/gi;
@@ -124,7 +151,7 @@ export function findDates(text: string, now: Date): Hit[] {
   while ((m = wk.exec(text))) {
     const start = m.index;
     const end = start + m[0].length;
-    if (absolute.some((h) => Math.abs(h.index - end) <= 4 || Math.abs(start - h.end) <= 4)) continue;
+    if (absolute.some((h) => (start < h.end && end > h.index) || Math.abs(h.index - end) <= 4 || Math.abs(start - h.end) <= 4)) continue;
     const target = WEEKDAY_STEMS.indexOf(m[2].toLowerCase());
     let diff = (target - today.getDay() + 7) % 7;
     if (m[1]?.toLowerCase() === "next" && diff === 0) diff = 7;
@@ -164,6 +191,19 @@ export function findTimes(text: string): { value: string; index: number }[] {
   return out;
 }
 
+/** "11am-2pm" is one event, not two times. The hyphen, en dash, or em dash joins them. */
+function findTimeSpan(text: string): { start: string; end: string } | null {
+  const re = /\b(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\s*[-–—]\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    if (isDeadlineContext(text, m.index)) continue;
+    const start = findTimes(m[1])[0]?.value;
+    const end = findTimes(m[2])[0]?.value;
+    if (start && end) return { start, end };
+  }
+  return null;
+}
+
 /* ------------------------------------------------------------------ */
 /* Category, source, audience, location                                 */
 /* ------------------------------------------------------------------ */
@@ -171,7 +211,7 @@ export function findTimes(text: string): { value: string; index: number }[] {
 const CATEGORY_SIGNALS: Record<Category, [string, number][]> = {
   "Birthday Party": [["birthday", 4], ["party", 2], ["rsvp", 1], ["turning", 1], ["party bag", 1], ["invit", 1], ["soft play", 1], ["trampoline", 1]],
   "School Admin": [
-    ["school", 2], ["pupil", 1], ["consent", 2], ["permission", 1], ["parentpay", 2], ["class ", 1], ["teacher", 1], ["year ", 1],
+    ["school", 2], ["pupil", 1], ["consent", 2], ["permission", 1], ["parentpay", 2], ["class ", 1], ["teacher", 1], ["year ", 1], ["grade", 2], ["kindergarten", 2],
     ["reception", 1], ["uniform", 1], ["term", 1], ["trip", 1], ["inset", 2], ["pta", 2], ["headteacher", 1], ["homework", 1],
     ["reading log", 1], ["parents' evening", 2], ["pe kit", 2], ["book character", 2],
   ],
@@ -231,6 +271,15 @@ function findSource(raw: string, channel: Channel): string {
 
 const AUDIENCE_RE = /\b(Year\s?\d{1,2}|Reception|Nursery|Class\s+\d?[A-Z]\w*|Under[- ]?\d{1,2}s?|U\d{1,2}s?)\b/;
 
+function findAudience(raw: string): string | null {
+  if (/\bkindergarten\b/i.test(raw) || /\bgrade\s+k\b/i.test(raw)) return "Kindergarten";
+  const nth = raw.match(/\b(\d{1,2})(?:st|nd|rd|th)\s+grade\b/i);
+  if (nth && +nth[1] >= 1 && +nth[1] <= 12) return `${ordinal(+nth[1])} grade`;
+  const named = raw.match(/\bgrade\s+(\d{1,2})\b/i);
+  if (named && +named[1] >= 1 && +named[1] <= 12) return `${ordinal(+named[1])} grade`;
+  return raw.match(AUDIENCE_RE)?.[1] ?? null;
+}
+
 const NOT_A_PLACE = new Set([
   "The", "This", "Next", "Home", "School", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
   "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December",
@@ -267,7 +316,7 @@ function findTitle(body: string, subject: string | null, audience: string | null
   if (/\bbook characters?\b/i.test(body) || /\bdress(?:ed)? up as a book\b/i.test(body)) return "Book character day";
 
   const eventText = sentences(body)
-    .filter((s) => !(/£/.test(s) && /\b(please\s+)?(send|pay|bring|chip in|payable|donation)\b/i.test(s)))
+    .filter((s) => !(/[£$]/.test(s) && /\b(please\s+)?(send|pay|bring|chip in|payable|donation)\b/i.test(s)))
     .join(" ");
   const lower = (eventText || body).toLowerCase();
   for (const phrase of EVENT_PHRASES) if (lower.includes(phrase)) return titleCase(phrase);
@@ -302,6 +351,10 @@ interface DraftTask {
   due: string | null;
 }
 
+function mentionsKit(text: string): boolean {
+  return KIT_ITEMS.some((item) => new RegExp(`\\b${item.replace(/ /g, "\\s+")}\\b`, "i").test(text));
+}
+
 function kitTask(item: string, adj?: string): string {
   if (item === "packed lunch") return "Make a packed lunch";
   if (item === "sun cream") return "Apply sun cream";
@@ -309,29 +362,45 @@ function kitTask(item: string, adj?: string): string {
   return `Pack ${adj ? `${adj.toLowerCase()} ` : ""}${item}`;
 }
 
-function payVia(sentence: string, body: string): string {
+function payVia(sentence: string, body: string, country: Country): string {
   for (const s of [sentence, body]) {
-    if (/parentpay/i.test(s)) return " via ParentPay";
+    if (country !== "US" && /parentpay/i.test(s)) return " via ParentPay";
     if (/club portal/i.test(s)) return " via club portal";
-    if (/school ?money|scopay|arbor/i.test(s)) return " via school app";
+    if (country !== "US" && /school ?money|scopay|arbor/i.test(s)) return " via school app";
   }
   return "";
 }
 
-function findTasks(body: string, now: Date): DraftTask[] {
+function findTasks(body: string, now: Date, country: Country): DraftTask[] {
   const out: DraftTask[] = [];
   const add = (text: string, due: string | null = null) => {
     if (!out.some((o) => o.text.toLowerCase() === text.toLowerCase())) out.push({ text, due });
   };
-  const dueOf = (s: string) => findDates(s, now)[0]?.iso ?? null;
+  const dueOf = (s: string) => findDates(s, now, country)[0]?.iso ?? null;
   const sents = sentences(body);
 
   for (const s of sents) {
     const due = dueOf(s);
     if (/\bbook characters?\b/i.test(s) || /\bdress(?:ed)? up as a book\b/i.test(s)) add("Prepare book character costume", due);
-    const send = s.match(/\bplease\s+send\s+£\s?(\d+(?:\.\d{2})?)\s+for\s+(?:the\s+)?([a-z][a-z\s]{1,40}?)(?=\s+by\b|[.!?,]|$)/i);
-    if (send) add(`Send £${send[1]} for ${send[2].trim().toLowerCase()}`, due);
+    const money = s.match(/\bplease\s+send\s+([£$])\s?(\d+(?:\.\d{2})?)\s+for\s+(?:the\s+)?([a-z][a-z\s]{1,40}?)(?=\s+by\b|[.!?,]|$)/i);
+    if (money) add(`Send ${money[1]}${money[2]} for ${money[3].trim().toLowerCase()}`, due);
     if (/\bswimm\w*\b/i.test(s) && /\bcancell?ed\b/i.test(s) && /\bpe\s+kit\b/i.test(s)) add("Pack PE kit instead of swimming", due);
+
+    const asked = s.match(/\b(?:please\s+)?(send(?:\s+in)?|bring(?:\s+in)?)\s+(?![£$])(.+?)(?=\s+(?:by|before|on)\b|[.?!]|$)/i);
+    if (asked && !/[£$]/.test(asked[2]) && !mentionsKit(asked[2])) {
+      const item = asked[2].replace(/\s+/g, " ").trim();
+      if (item && !/^(it|them|this|that)\b/i.test(item)) add(`${/bring/i.test(asked[1]) ? "Bring" : "Send"} ${item}`, due);
+    }
+    const need = s.match(/\bneed(?:s)?\s+(.+?)(?=\s+(?:by|before|on)\b|[.?!]|$)/i);
+    if (need && !/\b(?:send|bring)\b/i.test(s) && !mentionsKit(need[1])) {
+      const item = need[1].replace(/\s+/g, " ").trim();
+      if (item && item.split(/\s+/).length <= 12) add(`Bring ${item}`, due);
+    }
+    const donation = s.match(/\b([A-Za-z]+)\s+donations?\s+welcome\b/);
+    if (donation) {
+      const place = s.match(/\b(?:drop|leave)(?:\s+[a-z]+){0,4}?\s+at\s+(?:the\s+)?([A-Za-z]+)/i);
+      add(`Drop a ${donation[1].toLowerCase()}${place ? ` at the ${place[1].toLowerCase()}` : ""} (optional)`, due);
+    }
   }
 
   // Consent / forms
@@ -346,17 +415,17 @@ function findTasks(body: string, now: Date): DraftTask[] {
 
   // Money. "Please send £2 for the cake sale" is already its own action.
   for (const s of sents) {
-    if (/\bplease\s+send\s+£/i.test(s)) continue;
-    const mm = s.match(/£\s?(\d+(?:\.\d{2})?)/);
+    if (/\bplease\s+send\s+[£$]/i.test(s)) continue;
+    const mm = s.match(/([£$])\s?(\d+(?:\.\d{2})?)/);
     if (!mm) continue;
     const due = dueOf(s);
-    const amt = `£${mm[1]}`;
+    const amt = `${mm[1]}${mm[2]}`;
     if (/\b(gift|present|chip in|contribut\w*|collection)\b/i.test(s)) {
       add(/chip in|contribut|joint|collection/i.test(s) ? `Chip in ${amt} for the group gift` : `Buy a present (~${amt})`, due);
     } else if (/\b(subs|cash|coins?|donat\w*|bring)\b/i.test(s) && !/parentpay|\bpay(able)? (online|via)\b/i.test(`${s} ${sents[sents.indexOf(s) + 1] ?? ""}`)) {
       add(`Bring ${amt}${/subs/i.test(s) ? " subs" : /donat/i.test(s) ? " donation" : " in cash"}`, due);
     } else if (/\b(pay|payable|payment|costs?|fee|tickets?|charge|price)\b/i.test(s)) {
-      add(`Pay ${amt}${payVia(s, body)}`, due);
+      add(`Pay ${amt}${payVia(s, body, country)}`, due);
     }
   }
 
@@ -396,7 +465,7 @@ function findTasks(body: string, now: Date): DraftTask[] {
     else if (/\bfull (school )?uniform\b/i.test(s)) add("Lay out full school uniform", due);
     if (
       /\b(dress(?:ed)? up|come dressed|fancy dress|costume)\b/i.test(noSwim) &&
-      !out.some((t) => t.text === "Prepare book character costume")
+      !out.some((t) => /costume/i.test(t.text))
     ) {
       add("Prepare a costume", due);
     }
@@ -447,14 +516,16 @@ function findUrls(body: string): { url: string; context: string }[] {
 }
 
 /** Amazon UK search tuned to the child's age (from the title) and any budget in the task. */
-export function giftSearchUrl(title: string, task = ""): string {
+export function giftSearchUrl(title: string, task = "", country: Country = activeCountry()): string {
   const age = title.match(/(\d{1,2})(?:st|nd|rd|th)\b/)?.[1];
-  const budget = task.match(/£(\d+)/)?.[1];
-  const query = [age ? `${age} year old birthday present` : "kids birthday present", budget ? `under £${budget}` : ""].filter(Boolean).join(" ");
-  return `https://www.amazon.co.uk/s?k=${encodeURIComponent(query)}`;
+  const budget = task.match(/[£$](\d+)/)?.[1];
+  const symbol = country === "US" ? "$" : "£";
+  const query = [age ? `${age} year old birthday present` : "kids birthday present", budget ? `under ${symbol}${budget}` : ""].filter(Boolean).join(" ");
+  const host = country === "US" ? "https://www.amazon.com/s?k=" : "https://www.amazon.co.uk/s?k=";
+  return `${host}${encodeURIComponent(query)}`;
 }
 
-function attachLinks(drafts: DraftTask[], ctx: { raw: string; body: string; title: string; channel: Channel }): Task[] {
+function attachLinks(drafts: DraftTask[], ctx: { raw: string; body: string; title: string; channel: Channel; country: Country }): Task[] {
   const urls = findUrls(ctx.body);
   const pick = (re: RegExp) => urls.find((u) => re.test(u.url) || re.test(u.context))?.url;
   const fromAddress = ctx.channel === "email" ? (header(ctx.raw, "from") ?? "").match(EMAIL_RE)?.[0] : undefined;
@@ -474,11 +545,11 @@ function attachLinks(drafts: DraftTask[], ctx: { raw: string; body: string; titl
         urls.find((u) => /pay|ticket|shop/i.test(u.url))?.url ??
         urls.find((u) => /\b(pay|payable|tickets?)\b/.test(u.context) && !/consent|form/.test(u.context))?.url;
       if (url) link = { label: "Pay now", url };
-      else if (/parentpay/i.test(text)) link = { label: "ParentPay", url: "https://www.parentpay.com/" };
+      else if (ctx.country !== "US" && /parentpay/i.test(text)) link = { label: "ParentPay", url: "https://www.parentpay.com/" };
     } else if (/^(RSVP|Confirm attendance)/.test(text) && replyTo) {
       link = { label: "Reply", url: `mailto:${replyTo}?subject=${encodeURIComponent(`Re: ${ctx.title}`)}` };
     } else if (/^Buy a present/i.test(text)) {
-      link = { label: "Gift ideas", url: giftSearchUrl(ctx.title, text) };
+      link = { label: "Gift ideas", url: giftSearchUrl(ctx.title, text, ctx.country) };
     }
     return { id: uid(), text, done: false, ...(draft.due ? { due: draft.due } : {}), ...(link ? { link } : {}) };
   });
@@ -488,28 +559,37 @@ function attachLinks(drafts: DraftTask[], ctx: { raw: string; body: string; titl
 /* Public API                                                           */
 /* ------------------------------------------------------------------ */
 
-export function extract(raw: string, channel: Channel, now: Date = new Date()): Extraction {
+export function extract(raw: string, channel: Channel, now: Date = new Date(), country: Country = "UK"): Extraction {
   const subject = header(raw, "subject");
   const source = findSource(raw, channel);
   let body = stripHeaders(raw);
+  body = body
+    .split("\n")
+    .filter((line) => !/^\s*\d{1,2}:\d{2}\s*$/.test(line))
+    .join("\n")
+    .trim();
   if (channel === "whatsapp") body = normaliseChat(body);
 
   const category = classify(raw);
-  const audience = raw.match(AUDIENCE_RE)?.[1] ?? null;
+  const audience = findAudience(raw);
 
-  const dates = findDates(body, now);
+  const dates = findDates(body, now, country);
   const deadline = dates.find((d) => isDeadlineContext(body, d.index))?.iso ?? null;
   const eventDate = dates.find((d) => !isDeadlineContext(body, d.index))?.iso ?? null;
 
+  const span = findTimeSpan(body);
   const eventTime =
+    span?.start ??
     findTimes(body).find(
       (t) =>
         !isDeadlineContext(body, t.index) &&
         !/\b(collect|pick[- ]?up|back (?:at|by)|return)\b[^.\n]{0,25}$/i.test(body.slice(Math.max(0, t.index - 30), t.index)),
-    )?.value ?? null;
+    )?.value ??
+    null;
+  const eventEndTime = span?.end ?? null;
 
   let title = findTitle(body, subject, audience);
-  let tasks = findTasks(body, now);
+  let tasks = findTasks(body, now, country);
 
   const hasConsent = tasks.some((t) => /consent/i.test(t.text));
   if (hasConsent && !/consent|permission|slip|form/i.test(title) && title.length <= 24) title = `${title} permission slip`;
@@ -534,9 +614,10 @@ export function extract(raw: string, channel: Channel, now: Date = new Date()): 
     audience,
     eventDate,
     eventTime,
+    ...(eventEndTime ? { eventEndTime } : {}),
     location,
     deadline,
-    tasks: attachLinks(tasks, { raw, body, title, channel }),
+    tasks: attachLinks(tasks, { raw, body, title, channel, country }),
     summary: summarise(body),
     confidence: Math.round(confidence * 100) / 100,
     raw: raw.trim().slice(0, 8000),

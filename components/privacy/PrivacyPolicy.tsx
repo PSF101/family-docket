@@ -2,7 +2,7 @@
 
 import { useEffect, type ReactNode } from "react";
 import { ShieldCheck, X } from "lucide-react";
-import { PRIVACY_POLICY_VERSION } from "@/lib/profile";
+import { countryOf, PRIVACY_POLICY_VERSION, useProfile } from "@/lib/profile";
 
 /** Bottom sheet on phones, centred dialog on wider screens. Closes on Esc or backdrop tap. */
 export function Modal({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
@@ -67,6 +67,8 @@ function H({ children }: { children: ReactNode }) {
  * adviser, before FamilyDocket is offered to the public.
  */
 export function PrivacyPolicyText() {
+  const { profile } = useProfile();
+  const us = countryOf(profile) === "US";
   return (
     <div className="text-[13px] leading-relaxed text-stone-600 [&_li]:mt-1 [&_ul]:list-disc [&_ul]:pl-4">
       <p className="mb-4 flex items-center gap-1.5 text-[12px] font-medium text-accent-700">
@@ -82,7 +84,7 @@ export function PrivacyPolicyText() {
       <H>2. What we collect</H>
       <ul>
         <li>Account details: your name and email address.</li>
-        <li>Family details you choose to add: children&apos;s first names, schools and year groups, and carers&apos; usual working days and dates away.</li>
+        <li>Family details you choose to add: children&apos;s first names, schools and {us ? "grades" : "year groups"}, and carers&apos; usual working days and dates away.</li>
         <li>Content you bring in: emails you forward or paste, screenshots, and calendar files, plus the dates, tasks and notes we extract from them.</li>
         <li>Your consent record: which version of this policy you agreed to and when.</li>
       </ul>
@@ -112,8 +114,11 @@ export function PrivacyPolicyText() {
 
       <H>6. Sharing</H>
       <p>
-        We do not sell your data. Links to services such as ParentPay, Amazon or Bubble open those websites directly. We do not pass them your
-        details, and their own privacy policies apply once you are there.
+        We do not sell your data.{" "}
+        {us
+          ? "Links out to other websites open those sites directly."
+          : "Links to services such as ParentPay, Amazon or Bubble open those websites directly."}{" "}
+        We do not pass them your details, and their own privacy policies apply once you are there.
       </p>
 
       <H>7. How long we keep it</H>

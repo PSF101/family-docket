@@ -1,5 +1,5 @@
 import type { DocketItem, Task } from "./types";
-import { addDays, daysUntil, formatLong, formatShort, formatTime, formatWeekday, startOfDay, timeGreeting, toISO } from "./dates";
+import { addDays, daysUntil, formatLong, formatShort, formatTime, formatWeekday, formatWhen, startOfDay, timeGreeting, toISO } from "./dates";
 
 export type DispatchMode = "morning" | "evening";
 
@@ -22,7 +22,7 @@ export interface Dispatch {
 }
 
 const SLIP_RE = /\b(consent|permission|slip|form|sign|book a slot|register|rsvp|confirm)/i;
-const KIT_RE = /\b(pack|bring|kit|wear|costume|uniform|lunch|socks|goggles|boots|pads|present|medication|inhaler|outfit)\b|£/i;
+const KIT_RE = /\b(pack|bring|kit|wear|costume|uniform|lunch|socks|goggles|boots|pads|present|medication|inhaler|outfit)\b|[£$]/i;
 
 const open = (i: DocketItem): Task[] => i.tasks.filter((t) => !t.done);
 
@@ -57,7 +57,7 @@ export function buildDispatch(items: DocketItem[], mode: DispatchMode, now: Date
     lines: deadlines.length
       ? deadlines.map((i) => {
           const n = daysUntil(i.deadline!, now);
-          const label = n < 0 ? "OVERDUE" : n === 0 ? "Due today" : n === 1 ? "Due tomorrow" : `Due ${formatWeekday(i.deadline!)}`;
+          const label = n < 0 ? "OVERDUE" : n === 0 ? "Due today" : n === 1 ? "Due tomorrow" : `Due ${formatWhen(i.deadline!, now)}`;
           const count = open(i).length;
           return {
             text: `${label} — ${i.title} (${count} open action${count === 1 ? "" : "s"})`,
@@ -95,24 +95,23 @@ export function buildDispatch(items: DocketItem[], mode: DispatchMode, now: Date
     lines: kit.length
       ? kit.map(({ i, t }) => {
           const whenDate = t.due && t.due !== focusIso ? t.due : i.eventDate && i.eventDate !== focusIso ? i.eventDate : null;
-          const when = whenDate ? ` (${formatWeekday(whenDate)})` : "";
+          const when = whenDate ? ` (${formatWhen(whenDate, now)})` : "";
           return { text: `${t.text} — for ${i.title}${when}` };
         })
       : [{ text: mode === "morning" ? "Nothing extra in the bag today." : "Nothing to pack for tomorrow.", tone: "muted" }],
   });
 
-  // 5. Look-ahead
+  // 5. Look-ahead. Within six days the weekday is enough; further ahead needs the date.
   const ahead = active
-    .filter((i) => i.eventDate && daysUntil(i.eventDate, now) > offset + 1 && daysUntil(i.eventDate, now) <= 7)
+    .filter((i) => i.eventDate && daysUntil(i.eventDate, now) > offset + 1 && daysUntil(i.eventDate, now) <= 21)
     .sort((a, b) => a.eventDate!.localeCompare(b.eventDate!));
-  if (ahead.length) {
-    sections.push({
-      heading: "Later this week",
-      lines: ahead.map((i) => ({
-        text: `${formatWeekday(i.eventDate!)} — ${i.title}${i.eventTime ? `, ${formatTime(i.eventTime)}` : ""}`,
-      })),
-    });
-  }
+  const thisWeek = ahead.filter((i) => daysUntil(i.eventDate!, now) <= 6);
+  const further = ahead.filter((i) => daysUntil(i.eventDate!, now) > 6);
+  const aheadLine = (i: DocketItem) => ({
+    text: `${formatWhen(i.eventDate!, now)} — ${i.title}${i.eventTime ? `, ${formatTime(i.eventTime)}` : ""}`,
+  });
+  if (thisWeek.length) sections.push({ heading: "Later this week", lines: thisWeek.map(aheadLine) });
+  if (further.length) sections.push({ heading: "Coming up", lines: further.map(aheadLine) });
 
   const openCount = active.reduce((n, i) => n + open(i).length, 0);
   const label = mode === "morning" ? "Morning Dispatch" : "Evening Dispatch";

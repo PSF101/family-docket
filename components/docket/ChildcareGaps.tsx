@@ -3,12 +3,14 @@
 import { Check, LifeBuoy, TriangleAlert } from "lucide-react";
 import { BUBBLE_URL, type Gap } from "@/lib/childcare";
 import { daysUntil, formatRange } from "@/lib/dates";
-import { useProfile } from "@/lib/profile";
+import { countryOf, useProfile } from "@/lib/profile";
 import { cn } from "@/lib/utils";
 import { SectionLabel } from "../ui";
 
 /** The emergency childcare link. Only rendered for a detected gap, never as a general shortcut. */
 export function RescueButton({ className }: { className?: string }) {
+  const { profile } = useProfile();
+  if (countryOf(profile) === "US") return null;
   return (
     <a
       href={BUBBLE_URL}

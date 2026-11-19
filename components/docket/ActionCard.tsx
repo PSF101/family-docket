@@ -76,6 +76,7 @@ export function ActionCard({ item, now, onToggle, onArchive, onRestore, onDelete
               <span className="inline-flex items-center gap-1.5">
                 <Clock className="h-3.5 w-3.5 text-stone-400" />
                 {formatTime(item.eventTime)}
+                {item.eventEndTime ? `–${formatTime(item.eventEndTime)}` : ""}
               </span>
             )}
             {item.location && (

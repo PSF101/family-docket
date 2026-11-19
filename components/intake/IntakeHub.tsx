@@ -5,6 +5,7 @@ import { CalendarDays, ImagePlus, Loader2, Mail, MessageCircle, ScanText, Sparkl
 import type { Extraction } from "@/lib/types";
 import { recognizeScreenshot } from "@/lib/ocr";
 import { extract } from "@/lib/parser";
+import { countryOf, useProfile } from "@/lib/profile";
 import { chatTranscripts, emailSamples } from "@/lib/samples";
 import { useDocket } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -29,9 +30,11 @@ export function IntakeHub({
   initialTab?: IntakeTab;
 }) {
   const { add } = useDocket();
+  const { profile } = useProfile();
+  const country = countryOf(profile);
   // Built once per mount so sample dates stay stable while editing.
-  const [samples] = useState(() => emailSamples(now));
-  const [transcripts] = useState(() => chatTranscripts(now));
+  const [samples] = useState(() => emailSamples(now, country));
+  const [transcripts] = useState(() => chatTranscripts(now, country));
 
   const [tab, setTab] = useState<IntakeTab>(initialTab);
   const [emailText, setEmailText] = useState("");
@@ -54,7 +57,9 @@ export function IntakeHub({
   const sampleChips = useMemo(() => (tab === "email" ? samples : transcripts), [tab, samples, transcripts]);
   const header =
     tab === "calendar"
-      ? "Bring in the events you already have. I\u2019ll spot any actions in their notes."
+      ? country === "US"
+        ? "Import your school district calendar (.ics). Federal holidays are already marked as likely no-school days — check with your school."
+        : "Bring in the events you already have. I\u2019ll spot any actions in their notes."
       : "Throw anything at it. I\u2019ll turn the chaos into a checklist.";
 
   function loadFile(file: File | undefined) {
@@ -104,11 +109,11 @@ export function IntakeHub({
   }
 
   function process() {
-    setDraft(extract(input, tab === "email" ? "email" : "whatsapp", new Date()));
+    setDraft(extract(input, tab === "email" ? "email" : "whatsapp", new Date(), country));
     setPhase("processing");
   }
 
-  if (phase === "processing") return <ProcessingView onDone={() => setPhase("review")} />;
+  if (phase === "processing") return <ProcessingView label={tab === "screenshot" ? "Reading your screenshot…" : "Reading your email…"} onDone={() => setPhase("review")} />;
 
   if (phase === "review" && draft) {
     return (
@@ -166,7 +171,11 @@ export function IntakeHub({
               value={emailText}
               onChange={(e) => setEmailText(e.target.value)}
               rows={10}
-              placeholder={"---------- Forwarded message ---------\nFrom: St. Mary's Primary\nSubject: Year 4 Swimming Gala…"}
+              placeholder={
+                country === "US"
+                  ? "---------- Forwarded message ---------\nFrom: Maple Elementary\nSubject: 2nd grade field trip…"
+                  : "---------- Forwarded message ---------\nFrom: St. Mary's Primary\nSubject: Year 4 Swimming Gala…"
+              }
               className="w-full resize-y rounded-2xl bg-white p-4 font-mono text-[12.5px] leading-relaxed text-stone-800 shadow-card outline-none ring-1 ring-stone-900/[0.06] placeholder:text-stone-300 focus:ring-2 focus:ring-accent-500"
             />
           </div>

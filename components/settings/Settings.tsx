@@ -2,14 +2,14 @@
 
 import { useState, type ReactNode } from "react";
 import { Download, FileText, HardDrive, MessageSquare, ShieldCheck, Trash2, UserRound, Users } from "lucide-react";
-import { deleteAllUserData, newCarer, PRIVACY_POLICY_VERSION, useProfile } from "@/lib/profile";
+import { countryOf, deleteAllUserData, newCarer, PRIVACY_POLICY_VERSION, useProfile } from "@/lib/profile";
 import { useDocket } from "@/lib/store";
-import { formatRange, formatUK, toISO } from "@/lib/dates";
-import { ACADEMIC_YEAR, TERM_REGION, UK_TERM_DATES } from "@/lib/terms";
+import { formatRange, formatUK, toISO, type Country } from "@/lib/dates";
+import { ACADEMIC_YEAR, calendarFor, regionLabel } from "@/lib/terms";
 import { cn, downloadFile } from "@/lib/utils";
 import { Modal, PrivacyPolicyModal } from "../privacy/PrivacyPolicy";
 import { SectionLabel } from "../ui";
-import { CarerEditor, ChildrenEditor } from "./FamilyFields";
+import { CarerEditor, ChildrenEditor, CountryPicker } from "./FamilyFields";
 
 /** Replace with the real short feedback form before launch. */
 const FEEDBACK_URL = "https://example.com/familydocket-feedback";
@@ -26,6 +26,7 @@ export function Settings({ onToast }: { onToast: (m: string) => void }) {
   const [showTerms, setShowTerms] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   if (!profile) return null;
+  const country = countryOf(profile);
 
   function exportData() {
     const payload = { exportedAt: new Date().toISOString(), format: "FamilyDocket data export v1", profile, docket: items };
@@ -51,11 +52,12 @@ export function Settings({ onToast }: { onToast: (m: string) => void }) {
       <section>
         <SectionLabel>Family &amp; schedule</SectionLabel>
         <Card className="space-y-4">
+          <CountryPicker value={country} onChange={(next) => update((p) => ({ ...p, country: next }))} />
           <div>
             <p className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-stone-600">
               <Users className="h-4 w-4 text-stone-400" /> Children
             </p>
-            <ChildrenEditor value={profile.children} onChange={(children) => update((p) => ({ ...p, children }))} />
+            <ChildrenEditor value={profile.children} country={country} onChange={(children) => update((p) => ({ ...p, children }))} />
           </div>
           <div className="space-y-2.5">
             <p className="text-[13px] font-medium text-stone-600">Carers. A childcare gap means all of them are busy.</p>
@@ -63,6 +65,7 @@ export function Settings({ onToast }: { onToast: (m: string) => void }) {
               <div key={c.id} className="relative">
                 <CarerEditor
                   withAway
+                  country={country}
                   label={i === 0 ? "You" : "Partner / co-parent"}
                   carer={c}
                   onChange={(carer) => update((p) => ({ ...p, carers: p.carers.map((x) => (x.id === carer.id ? carer : x)) }))}
@@ -86,8 +89,8 @@ export function Settings({ onToast }: { onToast: (m: string) => void }) {
           </div>
           <button type="button" onClick={() => setShowTerms(true)} className="flex w-full items-center justify-between rounded-xl bg-stone-50 px-3 py-2.5 text-left text-[13px] ring-1 ring-stone-900/[0.04]">
             <span>
-              <span className="block font-medium text-ink">School term dates · {ACADEMIC_YEAR}</span>
-              <span className="block text-[12px] text-stone-400">{TERM_REGION}</span>
+              <span className="block font-medium text-ink">{country === "US" ? "Likely no-school days" : "School term dates"} · {ACADEMIC_YEAR}</span>
+              <span className="block text-[12px] text-stone-400">{regionLabel(country)}</span>
             </span>
             <span className="text-[12.5px] font-medium text-accent-700">View</span>
           </button>
@@ -150,7 +153,7 @@ export function Settings({ onToast }: { onToast: (m: string) => void }) {
       </section>
 
       {showPolicy && <PrivacyPolicyModal onClose={() => setShowPolicy(false)} />}
-      {showTerms && <TermDatesModal onClose={() => setShowTerms(false)} />}
+      {showTerms && <TermDatesModal country={country} onClose={() => setShowTerms(false)} />}
       {confirmDelete && <DeleteAccountModal itemCount={items.length} onClose={() => setConfirmDelete(false)} />}
     </div>
   );
@@ -195,14 +198,16 @@ function DeleteAccountModal({ itemCount, onClose }: { itemCount: number; onClose
   );
 }
 
-function TermDatesModal({ onClose }: { onClose: () => void }) {
+function TermDatesModal({ country, onClose }: { country: Country; onClose: () => void }) {
   return (
-    <Modal title={`School year ${ACADEMIC_YEAR}`} onClose={onClose}>
+    <Modal title={country === "US" ? `Likely no-school days · ${ACADEMIC_YEAR}` : `School year ${ACADEMIC_YEAR}`} onClose={onClose}>
       <p className="mb-3 text-[12.5px] leading-snug text-stone-500">
-        Typical dates for {TERM_REGION}. Schools set their own INSET days, so closures from your school&apos;s emails are added on top.
+        {country === "US"
+          ? "These US federal holidays are marked as likely no-school days — check with your school. Import your school district calendar (.ics) for the days they actually close."
+          : `Typical dates for ${regionLabel(country)}. Schools set their own INSET days, so closures from your school\u2019s emails are added on top.`}
       </p>
       <ul className="divide-y divide-stone-100">
-        {UK_TERM_DATES.map((m) => (
+        {calendarFor(country).map((m) => (
           <li key={m.label + m.from} className="flex items-baseline gap-3 py-2 text-[13px]">
             <span className={cn("flex-1", m.kind === "bank-holiday" ? "text-stone-400" : "text-ink")}>{m.label}</span>
             <span className="text-right tabular-nums text-stone-500">{formatRange(m.from, m.to)}</span>

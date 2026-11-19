@@ -12,7 +12,7 @@ const STEPS = [
 ];
 
 /** The fake "LLM is thinking" sequence shown between submit and review. */
-export function ProcessingView({ onDone }: { onDone: () => void }) {
+export function ProcessingView({ onDone, label = "Reading your email…" }: { onDone: () => void; label?: string }) {
   const [step, setStep] = useState(0);
   const done = useRef(onDone);
   done.current = onDone;
@@ -34,7 +34,7 @@ export function ProcessingView({ onDone }: { onDone: () => void }) {
       </div>
 
       <div className="flex items-center gap-2 px-1 text-[13px] font-medium text-accent-700">
-        <Sparkles className="h-4 w-4" /> FamilyDocket AI is reading…
+        <Sparkles className="h-4 w-4" /> {label}
       </div>
 
       <ol className="space-y-3 px-1">

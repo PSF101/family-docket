@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import { ArrowLeft, ArrowRight, CalendarPlus, Check, Layers, Lock, Mail, Sparkles, SquareDashed } from "lucide-react";
+import { type Country } from "@/lib/dates";
 import { type Carer, newCarer, newChild, PRIVACY_POLICY_VERSION, type Profile, useProfile } from "@/lib/profile";
 import { ACADEMIC_YEAR, TERM_REGION } from "@/lib/terms";
 import { cn } from "@/lib/utils";
 import { PrivacyPolicyModal } from "../privacy/PrivacyPolicy";
-import { CarerEditor, ChildrenEditor, inputCls } from "../settings/FamilyFields";
+import { CarerEditor, ChildrenEditor, CountryPicker, inputCls } from "../settings/FamilyFields";
 
 /** Where the new user lands once they're set up. Nothing has to be uploaded to finish. */
 export type FirstStep = "email" | "calendar" | "demo" | "empty";
@@ -29,12 +30,14 @@ export function Onboarding({ onFinish }: { onFinish: (start: FirstStep) => void 
   const [productEmails, setProductEmails] = useState(false);
   const [agreedAt, setAgreedAt] = useState("");
 
+  const [country, setCountry] = useState<Country>("UK");
   const [children, setChildren] = useState([newChild()]);
   const [solo, setSolo] = useState(false);
   const [me, setMe] = useState<Carer>(() => newCarer());
   const [partner, setPartner] = useState<Carer>(() => newCarer());
 
   const step1Ok = name.trim().length > 0 && EMAIL_RE.test(email.trim()) && consent;
+  const emailInvalid = email.trim().length > 0 && !EMAIL_RE.test(email.trim());
   const step2Ok = children.some((c) => c.name.trim());
 
   function next() {
@@ -49,6 +52,7 @@ export function Onboarding({ onFinish }: { onFinish: (start: FirstStep) => void 
     const profile: Profile = {
       name: name.trim(),
       email: email.trim(),
+      country,
       createdAt: new Date().toISOString(),
       consent: { privacyPolicy: true, policyVersion: PRIVACY_POLICY_VERSION, agreedAt: agreedAt || new Date().toISOString(), productEmails },
       children: children.filter((c) => c.name.trim()).map((c) => ({ ...c, name: c.name.trim() })),
@@ -125,8 +129,12 @@ export function Onboarding({ onFinish }: { onFinish: (start: FirstStep) => void 
             <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.025em] text-ink">Who&apos;s in the family?</h1>
             <p className="mt-2 text-[14px] text-stone-500">So we can spot days with no school and nobody free for pick-up.</p>
 
+            <div className="mt-6">
+              <CountryPicker value={country} onChange={setCountry} />
+            </div>
+
             <p className="mb-2 mt-6 text-[13px] font-medium text-stone-600">Children</p>
-            <ChildrenEditor value={children} onChange={setChildren} />
+            <ChildrenEditor value={children} onChange={setChildren} country={country} />
 
             <div className="mb-2 mt-6 flex items-center">
               <p className="text-[13px] font-medium text-stone-600">Who covers pick-up?</p>
@@ -146,7 +154,9 @@ export function Onboarding({ onFinish }: { onFinish: (start: FirstStep) => void 
               {!solo && <CarerEditor label="Partner / co-parent" carer={partner} onChange={setPartner} />}
             </div>
             <p className="mt-3 px-1 text-[12px] leading-snug text-stone-400">
-              School holidays are pre-loaded for {TERM_REGION}, {ACADEMIC_YEAR}. Add trips away later in Settings.
+              {country === "US"
+                ? "US federal holidays are marked as likely no-school days — check with your school. Import your school district calendar (.ics) for the days they actually close. Add trips away later in Settings."
+                : `School holidays are pre-loaded for ${TERM_REGION}, ${ACADEMIC_YEAR}. Add trips away later in Settings.`}
             </p>
           </>
         )}
@@ -156,8 +166,11 @@ export function Onboarding({ onFinish }: { onFinish: (start: FirstStep) => void 
             <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.025em] text-ink">Bring in your first item</h1>
             <p className="mt-2 text-[14px] text-stone-500">Pick one, or skip. You can add more at any time with the + button.</p>
             <div className="mt-6 space-y-2.5">
-              <Choice icon={Mail} title="Paste a school email" hint="ParentPay, Arbor, club newsletters, party invites" onClick={() => finish("email")} />
-              <Choice icon={CalendarPlus} title="Import a calendar" hint=".ics file from Google, Apple or Outlook" onClick={() => finish("calendar")} />
+              {country === "US" && (
+                <Choice icon={CalendarPlus} title="Import your school district calendar" hint=".ics file from your district" onClick={() => finish("calendar")} />
+              )}
+              <Choice icon={Mail} title="Paste a school email" hint={country === "US" ? "School emails, club newsletters, party invites" : "ParentPay, Arbor, club newsletters, party invites"} onClick={() => finish("email")} />
+              {country !== "US" && <Choice icon={CalendarPlus} title="Import a calendar" hint=".ics file from Google, Apple or Outlook" onClick={() => finish("calendar")} />}
               <Choice icon={Sparkles} title="Explore with a demo family" hint="See a busy week already sorted" onClick={() => finish("demo")} />
               <Choice icon={SquareDashed} title="Start with an empty docket" hint="Add things as they come in" onClick={() => finish("empty")} />
             </div>
@@ -182,7 +195,8 @@ export function Onboarding({ onFinish }: { onFinish: (start: FirstStep) => void 
           </button>
         </div>
       )}
-      {step === 0 && !consent && name && email && <p className="mt-2 text-center text-[12px] text-stone-400">Tick the Privacy Policy box to continue.</p>}
+      {step === 0 && emailInvalid && <p className="mt-2 text-center text-[12px] text-rose-600">Please enter a valid email</p>}
+      {step === 0 && !emailInvalid && !consent && name.trim() && email.trim() && <p className="mt-2 text-center text-[12px] text-stone-400">Tick the Privacy Policy box to continue.</p>}
       {step === 2 && (
         <button type="button" onClick={() => setStep(1)} className="mt-6 inline-flex items-center gap-1.5 self-start px-1 text-[13px] font-medium text-stone-500">
           <ArrowLeft className="h-4 w-4" /> Back
