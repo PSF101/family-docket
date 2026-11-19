@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    background: #ecebe6;
+  }
+  ::selection {
+    background: #dde8e1;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .skeleton {
+    background: linear-gradient(90deg, #efede8 25%, #f7f6f3 50%, #efede8 75%);
+    background-size: 200% 100%;
+    @apply animate-shimmer;
+  }
+}
